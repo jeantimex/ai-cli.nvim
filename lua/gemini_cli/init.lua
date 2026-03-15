@@ -180,6 +180,26 @@ function M.close()
   terminal.close()
 end
 
+function M.set_width(width_percentage)
+  local ok, result = terminal.set_width_percentage(width_percentage)
+  if not ok then
+    logger.error("command", result)
+    return
+  end
+
+  logger.info("command", string.format("Gemini width set to %.0f%%.", result * 100))
+end
+
+function M.resize(delta)
+  local ok, result = terminal.resize(delta)
+  if not ok then
+    logger.error("command", result)
+    return
+  end
+
+  logger.info("command", string.format("Gemini width set to %.0f%%.", result * 100))
+end
+
 ---Provides a helper to copy the current file path into the Gemini context.
 ---Currently just logs an instruction, but could be expanded to automate the /add command.
 function M.add_current_file()
@@ -220,6 +240,31 @@ function M._create_commands()
       end,
       opts = {
         desc = "Close Gemini CLI terminal",
+      },
+    },
+    GeminiWidth = {
+      fn = function(opts)
+        M.set_width(tonumber(opts.args) / 100)
+      end,
+      opts = {
+        nargs = 1,
+        desc = "Set Gemini terminal width percentage",
+      },
+    },
+    GeminiWider = {
+      fn = function()
+        M.resize(0.05)
+      end,
+      opts = {
+        desc = "Make Gemini terminal wider",
+      },
+    },
+    GeminiNarrower = {
+      fn = function()
+        M.resize(-0.05)
+      end,
+      opts = {
+        desc = "Make Gemini terminal narrower",
       },
     },
     GeminiAdd = {

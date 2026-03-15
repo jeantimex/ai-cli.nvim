@@ -486,6 +486,8 @@ function M.start()
   lockfile.create(port, auth_token)
   logger.info("server", "Gemini MCP bridge started on port " .. port)
   return true, port, auth_token
+end
+
 function M.notify(method, params)
   local payload = {
     jsonrpc = "2.0",

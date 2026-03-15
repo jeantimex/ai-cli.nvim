@@ -112,27 +112,8 @@ local function configure_terminal_buffer(target_buf)
   vim.bo[target_buf].swapfile = false
 end
 
-local function get_float_dimensions(effective_config)
-  local width = math.max(40, math.floor(vim.o.columns * effective_config.split_width_percentage))
-  local height = vim.o.lines - vim.o.cmdheight - 2
-
-  if vim.o.laststatus > 0 then
-    height = height - 1
-  end
-  if vim.o.showtabline > 0 then
-    height = height - 1
-  end
-
-  return {
-    relative = "editor",
-    row = 0,
-    col = vim.o.columns - width,
-    width = width,
-    height = math.max(10, height),
-    style = "minimal",
-    border = "none",
-    noautocmd = true,
-  }
+local function get_split_width(effective_config)
+  return math.max(40, math.floor(vim.o.columns * effective_config.split_width_percentage))
 end
 
 ---Resets internal state variables and cleans up autocommands.
@@ -197,6 +178,14 @@ local function normalize_terminal_windows(preferred_win, current_tab_only)
   return keep
 end
 
+local function refresh_window_layout(effective_config)
+  local active_config = effective_config or config
+  local visible_win = normalize_terminal_windows(nil, false)
+  if visible_win and vim.api.nvim_win_is_valid(visible_win) and active_config then
+    pcall(vim.api.nvim_win_set_width, visible_win, get_split_width(active_config))
+  end
+end
+
 ---Checks if the terminal buffer is still valid and optionally updates the window ID.
 ---@return boolean true if the terminal buffer exists and is valid
 local function is_valid()
@@ -252,8 +241,8 @@ local function hide_terminal()
   end
 end
 
----Re-opens a hidden terminal buffer in a right-docked floating window.
----@param effective_config table Configuration for width
+---Re-opens a hidden terminal buffer in a vertical split.
+---@param effective_config table Configuration for width and placement
 ---@param focus boolean Whether to focus the window after opening
 ---@return boolean success
 local function show_hidden_terminal(effective_config, focus)
@@ -269,7 +258,11 @@ local function show_hidden_terminal(effective_config, focus)
   end
 
   local original_win = vim.api.nvim_get_current_win()
-  local new_winid = vim.api.nvim_open_win(bufnr, focus, get_float_dimensions(effective_config))
+  local width = get_split_width(effective_config)
+  local placement_modifier = effective_config.split_side == "left" and "topleft " or "botright "
+  vim.cmd(placement_modifier .. width .. "vsplit")
+  local new_winid = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(new_winid, bufnr)
   winid = new_winid
   apply_terminal_window_style(new_winid)
   close_extra_terminal_windows()
@@ -304,8 +297,12 @@ function M.open(cmd_string, env_table, effective_config, focus)
   end
 
   local original_win = vim.api.nvim_get_current_win()
+  local width = get_split_width(effective_config)
+  local placement_modifier = effective_config.split_side == "left" and "topleft " or "botright "
+  vim.cmd(placement_modifier .. width .. "vsplit")
+  local new_winid = vim.api.nvim_get_current_win()
   local new_bufnr = vim.api.nvim_create_buf(false, true)
-  local new_winid = vim.api.nvim_open_win(new_bufnr, focus, get_float_dimensions(effective_config))
+  vim.api.nvim_win_set_buf(new_winid, new_bufnr)
   apply_terminal_window_style(new_winid)
 
   local term_cmd_arg = vim.split(cmd_string, " ", { plain = true, trimempty = true })
@@ -367,14 +364,11 @@ function M.open(cmd_string, env_table, effective_config, focus)
   close_extra_terminal_windows()
 
   terminal_group = vim.api.nvim_create_augroup("GeminiTerminalWindow", { clear = true })
-  vim.api.nvim_create_autocmd({ "TabEnter", "VimResized", "WinEnter" }, {
+  vim.api.nvim_create_autocmd({ "TabEnter", "WinEnter" }, {
     group = terminal_group,
     callback = function()
       if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-        local visible_win = normalize_terminal_windows(nil, false)
-        if visible_win and vim.api.nvim_win_is_valid(visible_win) then
-          pcall(vim.api.nvim_win_set_config, visible_win, get_float_dimensions(config or effective_config))
-        end
+        refresh_window_layout(config or effective_config)
       end
     end,
   })
@@ -384,6 +378,28 @@ function M.open(cmd_string, env_table, effective_config, focus)
   else
     vim.api.nvim_set_current_win(original_win)
   end
+end
+
+function M.set_width_percentage(width_percentage)
+  if not config then
+    return false, "Terminal config is not initialized"
+  end
+
+  if type(width_percentage) ~= "number" then
+    return false, "Width percentage must be a number"
+  end
+
+  config.split_width_percentage = math.min(0.9, math.max(0.2, width_percentage))
+  refresh_window_layout(config)
+  return true, config.split_width_percentage
+end
+
+function M.resize(delta)
+  if not config then
+    return false, "Terminal config is not initialized"
+  end
+
+  return M.set_width_percentage((config.split_width_percentage or 0.4) + (delta or 0))
 end
 
 ---Toggles the visibility of the Gemini terminal.

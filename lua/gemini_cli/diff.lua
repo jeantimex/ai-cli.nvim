@@ -12,6 +12,7 @@ local active_diffs = {}
 -- Tracks diffs that have been proposed but haven't been opened yet
 -- (e.g., because the target file isn't loaded in a buffer).
 local pending_diffs = {}
+local pending_open_paths = {}
 
 -- Stores the final outcome of diffs (accepted/rejected) to report back to Gemini.
 local resolved_diffs = {}
@@ -186,6 +187,15 @@ local function find_window_for_buffer(bufnr)
   return nil
 end
 
+local function find_window_for_path(path)
+  local target_buf = find_loaded_buffer(path)
+  if not target_buf then
+    return nil
+  end
+
+  return find_window_for_buffer(target_buf)
+end
+
 ---Heuristic to find the best window for displaying a diff review.
 ---Prefers the largest window that isn't a sidebar or special buffer.
 local function choose_review_window()
@@ -238,6 +248,8 @@ local function render_help(buf, state)
       { " q close ", "Comment" },
     },
     virt_text_pos = "overlay",
+    virt_text_win_col = 0,
+    hl_mode = "combine",
   })
 end
 
@@ -671,10 +683,28 @@ function M.maybe_open_pending_for_buffer(bufnr)
     return
   end
 
-  local target_win = find_window_for_buffer(bufnr)
-  if target_win then
-    open_review(pending, target_win)
+  if pending_open_paths[path] then
+    return
   end
+
+  pending_open_paths[path] = true
+  vim.defer_fn(function()
+    pending_open_paths[path] = nil
+
+    if active_diffs[path] then
+      return
+    end
+
+    local latest_pending = get_pending(path)
+    if not latest_pending then
+      return
+    end
+
+    local target_win = find_window_for_path(path)
+    if target_win then
+      open_review(latest_pending, target_win)
+    end
+  end, 20)
 end
 
 return M
