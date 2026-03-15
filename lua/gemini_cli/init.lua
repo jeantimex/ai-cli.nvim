@@ -57,8 +57,6 @@ function M.setup(user_config)
     -- Inject environment variables so gemini-cli knows how to connect to this Neovim instance
     M.state.config.env.GEMINI_CLI_IDE_SERVER_PORT = tostring(bridge_port)
     M.state.config.env.GEMINI_CLI_IDE_PID = tostring(vim.fn.getpid())
-    -- Faking TERM_PROGRAM can help some CLI tools detect IDE capabilities
-    M.state.config.env.TERM_PROGRAM = "vscode"
     -- Route bridge server events (like code edits) to the diff module
     diff.set_event_handler(server.notify)
   else

@@ -22,6 +22,45 @@ function M.setup(term_config)
   config = term_config
 end
 
+local function format_hex_color(color)
+  if type(color) ~= "number" then
+    return nil
+  end
+
+  return string.format("#%06x", color)
+end
+
+local function get_normal_background()
+  local ok, normal = pcall(vim.api.nvim_get_hl, 0, { name = "Normal", link = false })
+  if not ok or not normal then
+    return nil
+  end
+
+  return format_hex_color(normal.bg)
+end
+
+local function apply_terminal_window_style(target_win)
+  if not target_win or not vim.api.nvim_win_is_valid(target_win) then
+    return
+  end
+
+  vim.wo[target_win].winhighlight = "Normal:Normal,NormalNC:Normal,EndOfBuffer:Normal,SignColumn:Normal"
+end
+
+local function apply_terminal_palette(target_buf)
+  if not target_buf or not vim.api.nvim_buf_is_valid(target_buf) then
+    return
+  end
+
+  local background = get_normal_background()
+  if not background then
+    return
+  end
+
+  vim.api.nvim_buf_set_var(target_buf, "terminal_color_0", background)
+  vim.api.nvim_buf_set_var(target_buf, "terminal_color_8", background)
+end
+
 ---Resets internal state variables.
 local function cleanup_state()
   bufnr = nil
@@ -113,6 +152,7 @@ local function show_hidden_terminal(effective_config, focus)
   local new_winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(new_winid, bufnr)
   winid = new_winid
+  apply_terminal_window_style(new_winid)
 
   if focus then
     focus_terminal()
@@ -151,6 +191,9 @@ function M.open(cmd_string, env_table, effective_config, focus)
   vim.cmd(placement_modifier .. width .. "vsplit")
   local new_winid = vim.api.nvim_get_current_win()
   vim.cmd("enew")
+  local new_bufnr = vim.api.nvim_get_current_buf()
+  apply_terminal_window_style(new_winid)
+  apply_terminal_palette(new_bufnr)
 
   local term_cmd_arg = vim.split(cmd_string, " ", { plain = true, trimempty = true })
 
@@ -194,7 +237,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
   end
 
   winid = new_winid
-  bufnr = vim.api.nvim_get_current_buf()
+  bufnr = new_bufnr
   -- Prevent the buffer from being deleted when the window is closed
   vim.bo[bufnr].bufhidden = "hide"
 

@@ -14,3 +14,5 @@ WRN 2026-03-14T17:08:04.488 ?.1220     server_start:199: Failed to start server:
 WRN 2026-03-14T21:53:33.112 ?.13241    server_start:199: Failed to start server: operation not permitted: /var/folders/yd/843nh0sx6vx3cq_3vb9hpd080000gn/T/nvim.jeantimex/GZyKkP/nvim.13241.0
 WRN 2026-03-14T22:00:45.488 ?.14352    server_start:199: Failed to start server: operation not permitted: /var/folders/yd/843nh0sx6vx3cq_3vb9hpd080000gn/T/nvim.jeantimex/4esNMk/nvim.14352.0
 WRN 2026-03-14T22:05:18.799 ?.15194    server_start:199: Failed to start server: operation not permitted: /var/folders/yd/843nh0sx6vx3cq_3vb9hpd080000gn/T/nvim.jeantimex/Q8cTaF/nvim.15194.0
+WRN 2026-03-14T22:43:22.501 ?.17641    server_start:199: Failed to start server: operation not permitted: /var/folders/yd/843nh0sx6vx3cq_3vb9hpd080000gn/T/nvim.jeantimex/WyOqgE/nvim.17641.0
+WRN 2026-03-14T22:46:16.272 ?.18166    server_start:199: Failed to start server: operation not permitted: /var/folders/yd/843nh0sx6vx3cq_3vb9hpd080000gn/T/nvim.jeantimex/gU7pKD/nvim.18166.0
