@@ -31,8 +31,22 @@ require("gemini_cli").setup({
     split_width_percentage = 0.4, -- 40% of screen width
     auto_close = true, -- close terminal window when process exits
   },
+  diff = {
+    accept_key = "ga", -- accept a Gemini code suggestion
+    reject_key = "gr", -- reject a Gemini code suggestion
+  },
 })
 ```
+
+## Code Suggestions
+
+When Gemini proposes an edit, the plugin now opens a dedicated diff review tab.
+
+- `ga` accepts the suggestion and writes it to disk immediately.
+- `gr` rejects the suggestion.
+- `q` closes the review and rejects it.
+
+The plugin exposes a local Gemini IDE companion over MCP/HTTP so edit suggestions can open inside Neovim instead of staying only in the Gemini chat pane.
 
 ## Commands
 

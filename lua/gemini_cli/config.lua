@@ -14,6 +14,10 @@ M.defaults = {
     split_width_percentage = 0.4,
     auto_close = true,
   },
+  diff = {
+    accept_key = "ga",
+    reject_key = "gr",
+  },
 }
 
 ---Validates the provided configuration table.
@@ -46,6 +50,10 @@ function M.validate(config)
     "terminal.split_width_percentage must be a number between 0 and 1"
   )
   assert(type(config.terminal.auto_close) == "boolean", "terminal.auto_close must be a boolean")
+
+  assert(type(config.diff) == "table", "diff must be a table")
+  assert(type(config.diff.accept_key) == "string", "diff.accept_key must be a string")
+  assert(type(config.diff.reject_key) == "string", "diff.reject_key must be a string")
 
   return true
 end
