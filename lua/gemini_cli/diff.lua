@@ -457,6 +457,9 @@ end
 
 ---Internal helper to open the diff review UI.
 local function open_review(state, review_win)
+  local previous_win = vim.api.nvim_get_current_win()
+  local previous_buf = vim.api.nvim_win_is_valid(previous_win) and vim.api.nvim_win_get_buf(previous_win) or nil
+  local previous_buftype = previous_buf and vim.bo[previous_buf].buftype or ""
   local original_buf = vim.api.nvim_win_get_buf(review_win)
   local original_cursor = vim.api.nvim_win_get_cursor(review_win)
   local original_content = read_file(state.old_file)
@@ -501,7 +504,12 @@ local function open_review(state, review_win)
     end,
   })
 
-  vim.api.nvim_set_current_win(review_win)
+  if vim.api.nvim_win_is_valid(previous_win) then
+    vim.api.nvim_set_current_win(previous_win)
+    if previous_buftype == "terminal" then
+      vim.cmd("startinsert")
+    end
+  end
   logger.info("diff", "Opened Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
 end
 
