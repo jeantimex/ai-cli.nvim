@@ -67,6 +67,8 @@ local function refresh_open_file_buffers()
         end
       end
     end
+
+    diff.sync_external_resolution()
   end, 150)
 end
 

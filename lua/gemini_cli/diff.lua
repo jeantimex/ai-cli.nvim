@@ -107,6 +107,10 @@ local function ensure_trailing_newline(content)
   return content .. "\n"
 end
 
+local function content_matches(lhs, rhs)
+  return ensure_trailing_newline(lhs or "") == ensure_trailing_newline(rhs or "")
+end
+
 ---Generates a unified diff between two strings using Neovim's internal diff engine.
 ---@return string[] lines A table of lines representing the unified diff
 local function build_unified_diff(original_content, new_content)
@@ -394,6 +398,23 @@ local function finalize_in_editor(file_path, accepted)
   return true
 end
 
+local function resolve_external_accept(state)
+  if not state or not state.old_file then
+    return
+  end
+
+  local result = {
+    acceptedInEditor = true,
+    finalContent = state.new_content,
+    status = "accepted",
+  }
+
+  remember_result(state.old_file, result)
+  close_state(state.old_file)
+  clear_pending(state.old_file)
+  logger.info("diff", "Detected external apply for " .. vim.fn.fnamemodify(state.old_file, ":."))
+end
+
 ---Configures buffer-local keymaps for the diff review buffer.
 local function set_keymaps(buf, state)
   local opts = { buffer = buf, silent = true, nowait = true }
@@ -599,6 +620,31 @@ function M.close_diff(file_path)
   close_state(file_path)
   remember_result(state.old_file, result)
   return result
+end
+
+function M.sync_external_resolution()
+  if vim.in_fast_event() then
+    schedule_ui(M.sync_external_resolution)
+    return
+  end
+
+  for _, state in pairs(active_diffs) do
+    if content_matches(read_file(state.old_file), state.new_content) then
+      resolve_external_accept(state)
+    end
+  end
+
+  for path, state in pairs(pending_diffs) do
+    if content_matches(read_file(path), state.new_content) then
+      clear_pending(path)
+      remember_result(path, {
+        acceptedInEditor = true,
+        finalContent = state.new_content,
+        status = "accepted",
+      })
+      logger.info("diff", "Resolved pending Gemini diff from disk for " .. vim.fn.fnamemodify(path, ":."))
+    end
+  end
 end
 
 ---Checks if there is a pending diff for a buffer being opened.

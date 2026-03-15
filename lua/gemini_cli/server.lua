@@ -9,30 +9,42 @@ local logger = require("gemini_cli.logger")
 local lockfile = require("gemini_cli.lockfile")
 local diff = require("gemini_cli.diff")
 
--- The TCP server handle (libuv)
+-- The main TCP server handle from libuv (vim.uv)
 local server_handle = nil
--- The port Neovim is listening on
+
+-- The ephemeral TCP port Neovim is currently listening on
 local port = nil
--- A random token required in the 'Authorization: Bearer <token>' header
+
+-- A random token required in the 'Authorization: Bearer <token>' header for all requests.
+-- This ensures that only the gemini-cli that started Neovim (or has access to the lockfile)
+-- can call these tools.
 local auth_token = nil
--- List of active SSE (Server-Sent Events) clients
+
+-- List of active SSE (Server-Sent Events) clients.
+-- Each entry is a table: { client = <uv_tcp_t> }
 local sse_clients = {}
 
--- Current version of the Model Context Protocol
+-- Current version of the Model Context Protocol supported by this server.
 local MCP_PROTOCOL_VERSION = "2024-11-05"
 
 ---Generates a cryptographically-insecure but sufficient random token for local auth.
+---Uses high-resolution time and a random number to minimize collisions.
 local function make_token()
   return tostring(vim.uv.hrtime()) .. "-" .. tostring(math.random(100000, 999999))
 end
 
 ---Gracefully closes a TCP client connection.
+---Stops reading, performs a shutdown (FIN), and then closes the handle.
+---@param client any The libuv TCP client handle
 local function close_client(client)
   if not client or client:is_closing() then
     return
   end
 
+  -- Stop reading from the socket to prevent further callbacks
   pcall(client.read_stop, client)
+
+  -- Initiate a graceful shutdown
   client:shutdown(function()
     if not client:is_closing() then
       client:close()
@@ -41,6 +53,8 @@ local function close_client(client)
 end
 
 ---Removes a client from the active SSE broadcast list.
+---Used when a client disconnects or an error occurs during broadcast.
+---@param client any The libuv TCP client handle to remove
 local function remove_sse_client(client)
   for index, entry in ipairs(sse_clients) do
     if entry.client == client then
@@ -51,10 +65,11 @@ local function remove_sse_client(client)
 end
 
 ---Writes a raw HTTP response to a client.
+---Automatically sets Content-Length and Connection: close.
 ---@param client any The libuv TCP client
 ---@param status string HTTP status line (e.g., "200 OK")
 ---@param body string Response body
----@param headers table|nil Optional headers
+---@param headers table|nil Optional additional headers
 local function write_http(client, status, body, headers)
   headers = headers or {}
   headers["Content-Type"] = headers["Content-Type"] or "application/json"
@@ -68,18 +83,26 @@ local function write_http(client, status, body, headers)
   table.insert(lines, "")
   table.insert(lines, body)
 
+  -- Write the full response and close the client once finished
   client:write(table.concat(lines, "\r\n"), function()
     close_client(client)
   end)
 end
 
 ---Writes a JSON-encoded HTTP response.
+---Convenience wrapper for write_http.
+---@param client any The libuv TCP client
+---@param status string HTTP status line
+---@param payload table The Lua table to encode as JSON
 local function write_json(client, status, payload)
   write_http(client, status, vim.json.encode(payload))
 end
 
 ---Sends a message to an SSE client using the 'message' event type.
----@return boolean success Whether the write was successful
+---Follows the SSE wire format: 'event: <type>\ndata: <json>\n\n'.
+---@param client any The libuv TCP client handle
+---@param payload table The data to send
+---@return boolean success Whether the write was successfully initiated
 local function write_sse(client, payload)
   if not client or client:is_closing() then
     return false
@@ -89,7 +112,7 @@ local function write_sse(client, payload)
   local message = table.concat({
     "event: message",
     "data: " .. encoded,
-    "",
+    "", -- Double \r\n to end the SSE block
     "",
   }, "\r\n")
 
@@ -104,14 +127,16 @@ local function write_sse(client, payload)
 end
 
 ---Initializes an SSE stream on a client connection.
+---Sends the initial HTTP response with text/event-stream content type.
+---@param client any The libuv TCP client handle
 local function open_sse_stream(client)
   local lines = {
     "HTTP/1.1 200 OK",
     "Content-Type: text/event-stream",
     "Cache-Control: no-cache",
-    "Connection: keep-alive",
+    "Connection: keep-alive", -- SSE requires a persistent connection
     "",
-    ": connected",
+    ": connected", -- Initial SSE comment to confirm connection
     "",
   }
 
@@ -120,6 +145,8 @@ local function open_sse_stream(client)
 end
 
 ---Responds with a 401 Unauthorized JSON-RPC error.
+---Used when the Authorization header is missing or invalid.
+---@param client any The libuv TCP client handle
 local function unauthorized(client)
   write_json(client, "401 Unauthorized", {
     jsonrpc = "2.0",
@@ -131,7 +158,9 @@ local function unauthorized(client)
   })
 end
 
----Helpers to construct standard JSON-RPC 2.0 objects.
+---Constructs a standard JSON-RPC 2.0 result object.
+---@param id number|string|nil Request identifier
+---@param result any The result payload
 local function jsonrpc_result(id, result)
   return {
     jsonrpc = "2.0",
@@ -140,6 +169,10 @@ local function jsonrpc_result(id, result)
   }
 end
 
+---Constructs a standard JSON-RPC 2.0 error object.
+---@param id number|string|nil Request identifier
+---@param code number Error code
+---@param message string Error message
 local function jsonrpc_error(id, code, message)
   return {
     jsonrpc = "2.0",
@@ -151,9 +184,14 @@ local function jsonrpc_error(id, code, message)
   }
 end
 
----Basic HTTP request parser.
----Note: This does not support chunked encoding or multi-part bodies.
+---Basic HTTP request parser for the bridge server.
+---Supports simple GET and POST requests.
+---Note: Does NOT support chunked encoding or multi-part bodies.
+---@param raw string The raw raw data from the socket
+---@return table|nil request The parsed request object, or nil if incomplete
+---@return string|nil error Error message if parsing failed or data is incomplete
 local function parse_http(raw)
+  -- Split headers from body (double newline)
   local header_text, body = raw:match("^(.-)\r\n\r\n(.*)$")
   if not header_text then
     return nil, "Incomplete HTTP request"
@@ -161,11 +199,13 @@ local function parse_http(raw)
 
   local lines = vim.split(header_text, "\r\n", { plain = true })
   local request_line = table.remove(lines, 1)
+  -- Parse Method (e.g., POST) and Path (e.g., /mcp)
   local method, path = request_line:match("^(%S+)%s+(%S+)")
   if not method or not path then
     return nil, "Invalid request line"
   end
 
+  -- Simple header extraction
   local headers = {}
   for _, line in ipairs(lines) do
     local name, value = line:match("^([^:]+):%s*(.*)$")
@@ -174,6 +214,7 @@ local function parse_http(raw)
     end
   end
 
+  -- Validate that we have the full body based on Content-Length
   local content_length = tonumber(headers["content-length"] or "0") or 0
   if #body < content_length then
     return nil, "Incomplete body"

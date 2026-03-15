@@ -1,6 +1,6 @@
 ---@module 'gemini_cli.terminal'
 --- Manages the Gemini CLI terminal buffer and window.
---- This module handles creating the terminal split, managing its visibility,
+--- This module handles creating the terminal window, managing its visibility,
 --- and tracking the terminal process lifecycle.
 local M = {}
 
@@ -77,6 +77,7 @@ local function apply_terminal_window_style(target_win)
   end
 
   vim.wo[target_win].winhighlight = "Normal:Normal,NormalNC:Normal,EndOfBuffer:Normal,SignColumn:Normal"
+  vim.wo[target_win].winbar = ""
 end
 
 ---Synchronizes terminal color palette with the editor's background.
@@ -109,6 +110,29 @@ local function configure_terminal_buffer(target_buf)
   vim.bo[target_buf].bufhidden = "hide"
   vim.bo[target_buf].filetype = "gemini-cli"
   vim.bo[target_buf].swapfile = false
+end
+
+local function get_float_dimensions(effective_config)
+  local width = math.max(40, math.floor(vim.o.columns * effective_config.split_width_percentage))
+  local height = vim.o.lines - vim.o.cmdheight - 2
+
+  if vim.o.laststatus > 0 then
+    height = height - 1
+  end
+  if vim.o.showtabline > 0 then
+    height = height - 1
+  end
+
+  return {
+    relative = "editor",
+    row = 0,
+    col = vim.o.columns - width,
+    width = width,
+    height = math.max(10, height),
+    style = "minimal",
+    border = "none",
+    noautocmd = true,
+  }
 end
 
 ---Resets internal state variables and cleans up autocommands.
@@ -145,9 +169,10 @@ end
 ---Ensures only one terminal window exists and updates the tracked winid.
 ---Closes redundant windows and applies styling to the remaining one.
 ---@param preferred_win number|nil A window ID that should be kept if possible
+---@param current_tab_only boolean|nil Limit the normalization scope to the current tab
 ---@return number|nil The ID of the window that was kept
-local function normalize_terminal_windows(preferred_win)
-  local wins = find_terminal_windows(true)
+local function normalize_terminal_windows(preferred_win, current_tab_only)
+  local wins = find_terminal_windows(current_tab_only ~= false)
   if #wins == 0 then
     return nil
   end
@@ -201,6 +226,15 @@ local function is_terminal_visible()
   return normalize_terminal_windows() ~= nil
 end
 
+local function close_extra_terminal_windows()
+  local keep = winid
+  for _, win in ipairs(find_terminal_windows(false)) do
+    if win ~= keep and vim.api.nvim_win_is_valid(win) then
+      pcall(vim.api.nvim_win_close, win, false)
+    end
+  end
+end
+
 ---Moves focus to the terminal window and enters insert mode.
 local function focus_terminal()
   if is_valid() then
@@ -211,15 +245,15 @@ end
 
 ---Hides the terminal window if it's currently open.
 local function hide_terminal()
-  if bufnr and vim.api.nvim_buf_is_valid(bufnr) and winid and vim.api.nvim_win_is_valid(winid) then
+  if is_terminal_visible() and winid and vim.api.nvim_win_is_valid(winid) then
     vim.api.nvim_win_close(winid, false)
     winid = nil
     logger.debug("terminal", "Terminal window hidden")
   end
 end
 
----Re-opens a hidden terminal buffer in a new split.
----@param effective_config table Configuration for split side and width
+---Re-opens a hidden terminal buffer in a right-docked floating window.
+---@param effective_config table Configuration for width
 ---@param focus boolean Whether to focus the window after opening
 ---@return boolean success
 local function show_hidden_terminal(effective_config, focus)
@@ -235,14 +269,10 @@ local function show_hidden_terminal(effective_config, focus)
   end
 
   local original_win = vim.api.nvim_get_current_win()
-  local width = math.floor(vim.o.columns * effective_config.split_width_percentage)
-  local placement_modifier = effective_config.split_side == "left" and "topleft " or "botright "
-
-  vim.cmd(placement_modifier .. width .. "vsplit")
-  local new_winid = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(new_winid, bufnr)
+  local new_winid = vim.api.nvim_open_win(bufnr, focus, get_float_dimensions(effective_config))
   winid = new_winid
   apply_terminal_window_style(new_winid)
+  close_extra_terminal_windows()
 
   if focus then
     focus_terminal()
@@ -274,16 +304,9 @@ function M.open(cmd_string, env_table, effective_config, focus)
   end
 
   local original_win = vim.api.nvim_get_current_win()
-  local width = math.floor(vim.o.columns * effective_config.split_width_percentage)
-  local placement_modifier = effective_config.split_side == "left" and "topleft " or "botright "
-
-  -- Create the split and a new empty buffer
-  vim.cmd(placement_modifier .. width .. "vsplit")
-  local new_winid = vim.api.nvim_get_current_win()
-  vim.cmd("enew")
-  local new_bufnr = vim.api.nvim_get_current_buf()
+  local new_bufnr = vim.api.nvim_create_buf(false, true)
+  local new_winid = vim.api.nvim_open_win(new_bufnr, focus, get_float_dimensions(effective_config))
   apply_terminal_window_style(new_winid)
-  apply_terminal_palette(new_bufnr)
 
   local term_cmd_arg = vim.split(cmd_string, " ", { plain = true, trimempty = true })
 
@@ -330,7 +353,9 @@ function M.open(cmd_string, env_table, effective_config, focus)
   if not jobid or jobid <= 0 then
     vim.notify("Failed to open Gemini terminal.", vim.log.levels.ERROR)
     vim.api.nvim_win_close(new_winid, true)
-    vim.api.nvim_set_current_win(original_win)
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
     cleanup_state()
     return
   end
@@ -338,13 +363,18 @@ function M.open(cmd_string, env_table, effective_config, focus)
   winid = new_winid
   bufnr = new_bufnr
   configure_terminal_buffer(bufnr)
+  apply_terminal_palette(bufnr)
+  close_extra_terminal_windows()
 
   terminal_group = vim.api.nvim_create_augroup("GeminiTerminalWindow", { clear = true })
-  vim.api.nvim_create_autocmd({ "BufWinEnter", "TabEnter", "WinEnter" }, {
+  vim.api.nvim_create_autocmd({ "TabEnter", "VimResized", "WinEnter" }, {
     group = terminal_group,
     callback = function()
       if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-        normalize_terminal_windows(vim.api.nvim_get_current_win())
+        local visible_win = normalize_terminal_windows(nil, false)
+        if visible_win and vim.api.nvim_win_is_valid(visible_win) then
+          pcall(vim.api.nvim_win_set_config, visible_win, get_float_dimensions(config or effective_config))
+        end
       end
     end,
   })
