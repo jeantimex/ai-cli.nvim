@@ -301,10 +301,11 @@ local function preserve_terminal_window()
     return
   end
 
-  ensure_editor_window(current_buf)
+  local target_win = ensure_editor_window(current_buf)
   vim.api.nvim_win_set_buf(winid, bufnr)
-  vim.api.nvim_set_current_win(winid)
-  vim.cmd("startinsert")
+  if target_win and vim.api.nvim_win_is_valid(target_win) then
+    vim.api.nvim_set_current_win(target_win)
+  end
 end
 
 ---Moves focus to the terminal window and enters insert mode.
