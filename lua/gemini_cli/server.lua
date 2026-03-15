@@ -306,10 +306,7 @@ local function handle_tool_call(request)
       return jsonrpc_error(request.id, -32000, result)
     end
 
-    local content = nil
-    if result and result.acceptedInEditor == true then
-      content = result.finalContent
-    end
+    local content = result and result.finalContent or nil
 
     return jsonrpc_result(request.id, {
       content = {

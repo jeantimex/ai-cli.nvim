@@ -133,6 +133,7 @@ function M.setup(user_config)
       -- offer to show the diff UI.
       if args.event == "BufEnter" or args.event == "BufWinEnter" or args.event == "BufReadPost" then
         diff.maybe_open_pending_for_buffer(args.buf)
+        diff.maybe_open_pending()
       end
     end,
   })

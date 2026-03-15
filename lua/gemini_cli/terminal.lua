@@ -11,6 +11,8 @@ local utils = require("gemini_cli.utils")
 local bufnr = nil
 -- Window ID where the terminal is currently displayed
 local winid = nil
+-- Window ID of the most recent normal editing window
+local editor_winid = nil
 -- Job ID of the terminal process (returned by termopen)
 local jobid = nil
 
@@ -124,6 +126,7 @@ local function cleanup_state()
   end
   bufnr = nil
   winid = nil
+  editor_winid = nil
   jobid = nil
 end
 
@@ -224,6 +227,86 @@ local function close_extra_terminal_windows()
   end
 end
 
+local function track_editor_window(candidate_win)
+  if not candidate_win or not vim.api.nvim_win_is_valid(candidate_win) or candidate_win == winid then
+    return
+  end
+
+  local candidate_buf = vim.api.nvim_win_get_buf(candidate_win)
+  if vim.api.nvim_buf_is_valid(candidate_buf) and vim.bo[candidate_buf].buftype == "" then
+    editor_winid = candidate_win
+  end
+end
+
+local function ensure_editor_window(target_buf)
+  if
+    editor_winid
+    and vim.api.nvim_win_is_valid(editor_winid)
+    and editor_winid ~= winid
+    and vim.api.nvim_win_get_tabpage(editor_winid) == vim.api.nvim_get_current_tabpage()
+  then
+    vim.api.nvim_win_set_buf(editor_winid, target_buf)
+    return editor_winid
+  end
+
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  local best_win = nil
+  local best_score = -1
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(current_tab)) do
+    if vim.api.nvim_win_is_valid(win) and win ~= winid then
+      local buf = vim.api.nvim_win_get_buf(win)
+      if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "" then
+        local score = vim.api.nvim_win_get_width(win) * vim.api.nvim_win_get_height(win)
+        if score > best_score then
+          best_score = score
+          best_win = win
+        end
+      end
+    end
+  end
+
+  if best_win then
+    vim.api.nvim_win_set_buf(best_win, target_buf)
+    editor_winid = best_win
+    return best_win
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  local placement_modifier = (config and config.split_side == "left") and "botright " or "topleft "
+  vim.cmd(placement_modifier .. "vsplit")
+  local new_win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(new_win, target_buf)
+  editor_winid = new_win
+
+  if vim.api.nvim_win_is_valid(current_win) then
+    vim.api.nvim_set_current_win(current_win)
+  end
+
+  return new_win
+end
+
+local function preserve_terminal_window()
+  if not winid or not vim.api.nvim_win_is_valid(winid) or not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  if current_win ~= winid then
+    track_editor_window(current_win)
+    return
+  end
+
+  local current_buf = vim.api.nvim_win_get_buf(current_win)
+  if current_buf == bufnr then
+    return
+  end
+
+  ensure_editor_window(current_buf)
+  vim.api.nvim_win_set_buf(winid, bufnr)
+  vim.api.nvim_set_current_win(winid)
+  vim.cmd("startinsert")
+end
+
 ---Moves focus to the terminal window and enters insert mode.
 local function focus_terminal()
   if is_valid() then
@@ -270,6 +353,7 @@ local function show_hidden_terminal(effective_config, focus)
   if focus then
     focus_terminal()
   else
+    track_editor_window(original_win)
     vim.api.nvim_set_current_win(original_win)
   end
 
@@ -364,10 +448,11 @@ function M.open(cmd_string, env_table, effective_config, focus)
   close_extra_terminal_windows()
 
   terminal_group = vim.api.nvim_create_augroup("GeminiTerminalWindow", { clear = true })
-  vim.api.nvim_create_autocmd({ "TabEnter", "WinEnter" }, {
+  vim.api.nvim_create_autocmd({ "BufEnter", "TabEnter", "WinEnter" }, {
     group = terminal_group,
     callback = function()
       if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        preserve_terminal_window()
         refresh_window_layout(config or effective_config)
       end
     end,
@@ -376,6 +461,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
   if focus then
     focus_terminal()
   else
+    track_editor_window(original_win)
     vim.api.nvim_set_current_win(original_win)
   end
 end

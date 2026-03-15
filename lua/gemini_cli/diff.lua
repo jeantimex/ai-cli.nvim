@@ -513,6 +513,31 @@ local function open_review(state, review_win)
   logger.info("diff", "Opened Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
 end
 
+local function schedule_pending_open(path)
+  if not path or pending_open_paths[path] then
+    return
+  end
+
+  pending_open_paths[path] = true
+  vim.defer_fn(function()
+    pending_open_paths[path] = nil
+
+    if active_diffs[path] then
+      return
+    end
+
+    local latest_pending = get_pending(path)
+    if not latest_pending then
+      return
+    end
+
+    local target_win = find_window_for_path(path)
+    if target_win then
+      open_review(latest_pending, target_win)
+    end
+  end, 20)
+end
+
 ---Entry point for opening a diff (called via MCP).
 ---If the file is already visible, starts the review immediately.
 ---Otherwise, queues the diff as pending.
@@ -667,6 +692,19 @@ function M.sync_external_resolution()
   end
 end
 
+function M.maybe_open_pending()
+  if vim.in_fast_event() then
+    schedule_ui(M.maybe_open_pending)
+    return
+  end
+
+  for path, _ in pairs(pending_diffs) do
+    if find_window_for_path(path) then
+      schedule_pending_open(path)
+    end
+  end
+end
+
 ---Checks if there is a pending diff for a buffer being opened.
 ---If so, opens the diff in the window displaying that buffer.
 function M.maybe_open_pending_for_buffer(bufnr)
@@ -691,28 +729,7 @@ function M.maybe_open_pending_for_buffer(bufnr)
     return
   end
 
-  if pending_open_paths[path] then
-    return
-  end
-
-  pending_open_paths[path] = true
-  vim.defer_fn(function()
-    pending_open_paths[path] = nil
-
-    if active_diffs[path] then
-      return
-    end
-
-    local latest_pending = get_pending(path)
-    if not latest_pending then
-      return
-    end
-
-    local target_win = find_window_for_path(path)
-    if target_win then
-      open_review(latest_pending, target_win)
-    end
-  end, 20)
+  schedule_pending_open(path)
 end
 
 return M
