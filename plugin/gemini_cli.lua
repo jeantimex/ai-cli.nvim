@@ -1,6 +1,6 @@
 -- Check if the Neovim version is supported (>= 0.8.0).
 if vim.fn.has("nvim-0.8.0") ~= 1 then
-  vim.api.nvim_err_writeln("Gemini CLI requires Neovim >= 0.8.0")
+  vim.notify("Gemini CLI requires Neovim >= 0.8.0", vim.log.levels.ERROR)
   return
 end
 

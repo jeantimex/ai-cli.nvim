@@ -13,6 +13,7 @@ local diff = require("gemini_cli.diff")
 
 -- Path to the temporary system defaults file used to configure gemini-cli
 local defaults_path = nil
+local refresh_pending = false
 
 ---Writes a temporary JSON file containing system-level defaults for gemini-cli.
 ---This is used to inform the CLI that it is running in an IDE-like environment.
@@ -34,6 +35,28 @@ local function write_system_defaults()
   return path
 end
 
+local function refresh_open_file_buffers()
+  if refresh_pending then
+    return
+  end
+
+  refresh_pending = true
+  vim.defer_fn(function()
+    refresh_pending = false
+
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buf) then
+        local name = vim.api.nvim_buf_get_name(buf)
+        if name ~= "" and vim.bo[buf].buftype == "" and not vim.bo[buf].modified then
+          pcall(vim.api.nvim_buf_call, buf, function()
+            vim.cmd("silent! checktime")
+          end)
+        end
+      end
+    end
+  end, 150)
+end
+
 -- Internal module state
 M.state = {
   config = config_module.defaults,
@@ -48,6 +71,7 @@ function M.setup(user_config)
   M.state.config = config_module.apply(user_config)
   logger.setup(M.state.config)
   terminal.setup(M.state.config.terminal)
+  terminal.set_activity_handler(refresh_open_file_buffers)
   diff.setup(M.state.config)
 
   -- Start the RPC bridge server. This allows the gemini-cli process (running in the terminal)
@@ -83,7 +107,7 @@ function M.setup(user_config)
     callback = function(args)
       -- Only trigger checktime if not in command-line mode to avoid interruptions
       if vim.fn.mode() ~= "c" then
-        vim.cmd("checktime")
+        refresh_open_file_buffers()
       end
 
       -- If we're entering a buffer that has a pending diff from Gemini, offer to show it

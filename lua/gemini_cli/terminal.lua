@@ -16,10 +16,26 @@ local jobid = nil
 
 ---@type table active terminal configuration
 local config = nil
+local activity_handler = nil
 
 ---Sets the base configuration for terminal management.
 function M.setup(term_config)
   config = term_config
+end
+
+function M.set_activity_handler(handler)
+  activity_handler = handler
+end
+
+local function notify_activity()
+  if not activity_handler then
+    return
+  end
+
+  local ok, err = pcall(activity_handler)
+  if not ok then
+    logger.warn("terminal", "Activity handler failed:", err)
+  end
 end
 
 local function format_hex_color(color)
@@ -198,6 +214,12 @@ function M.open(cmd_string, env_table, effective_config, focus)
   local term_cmd_arg = vim.split(cmd_string, " ", { plain = true, trimempty = true })
 
   local term_opts = {
+    on_stdout = function()
+      vim.schedule(notify_activity)
+    end,
+    on_stderr = function()
+      vim.schedule(notify_activity)
+    end,
     on_exit = function(job_id, _, _)
       vim.schedule(function()
         if job_id == jobid then

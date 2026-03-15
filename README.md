@@ -23,6 +23,7 @@ Default configuration:
 
 ```lua
 require("gemini_cli").setup({
+  auto_start = true, -- start the bridge server automatically
   terminal_cmd = "gemini", -- command to start gemini_cli
   env = {}, -- extra environment variables
   log_level = "info",
@@ -38,22 +39,30 @@ require("gemini_cli").setup({
 })
 ```
 
+The plugin automatically sets several environment variables for the Gemini terminal:
+- `GEMINI_CLI_IDE_SERVER_PORT`: Port for the Neovim bridge server.
+- `GEMINI_CLI_IDE_PID`: PID of the Neovim process.
+- `NVIM`: Neovim server name.
+- `EDITOR`: Set to `nvim`.
+
 ## Code Suggestions
 
-When Gemini proposes an edit, the plugin now opens a dedicated diff review tab.
+When Gemini proposes an edit, the plugin opens a dedicated diff review in a temporary buffer.
 
-- `ga` accepts the suggestion and writes it to disk immediately.
-- `gr` rejects the suggestion.
+- `ga` (default) accepts the suggestion, writes it to disk, and updates any open buffers.
+- `gr` (default) rejects the suggestion.
 - `q` closes the review and rejects it.
-- If Gemini edits a file that is not already loaded in Neovim, the suggestion stays pending and the diff opens when you visit that file.
+- If Gemini edits a file that is not currently loaded in Neovim, the suggestion is queued and will automatically open the diff review when you visit that file.
 
-The plugin exposes a local Gemini IDE companion over MCP/HTTP so edit suggestions can open inside Neovim instead of staying only in the Gemini chat pane.
+The plugin also enables `autoread`, so files modified on disk by Gemini (if you apply changes via the chat) are automatically reloaded in Neovim.
 
 ## Commands
 
 - `:Gemini [args]` - Toggle the Gemini terminal window.
 - `:GeminiOpen [args]` - Open the Gemini terminal window.
 - `:GeminiClose` - Close the Gemini terminal window.
+- `:GeminiAdd` - Helper to add the current file to Gemini's context (prints the `/add` command).
+- `:GeminiRefresh` - Manually reload the current buffer from disk.
 
 ## License
 
