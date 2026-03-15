@@ -45,6 +45,7 @@ When Gemini proposes an edit, the plugin now opens a dedicated diff review tab.
 - `ga` accepts the suggestion and writes it to disk immediately.
 - `gr` rejects the suggestion.
 - `q` closes the review and rejects it.
+- If Gemini edits a file that is not already loaded in Neovim, the suggestion stays pending and the diff opens when you visit that file.
 
 The plugin exposes a local Gemini IDE companion over MCP/HTTP so edit suggestions can open inside Neovim instead of staying only in the Gemini chat pane.
 

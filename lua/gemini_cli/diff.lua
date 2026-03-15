@@ -1,10 +1,25 @@
+---@module 'gemini_cli.diff'
+--- Manages the lifecycle of code diffs proposed by Gemini.
+--- This includes rendering unified diffs in a temporary buffer,
+--- handling user acceptance/rejection, and auto-applying changes to disk.
 local M = {}
 local logger = require("gemini_cli.logger")
 
+-- Tracks diffs that are currently being reviewed in a window.
+-- Keyed by normalized absolute file path.
 local active_diffs = {}
+
+-- Tracks diffs that have been proposed but haven't been opened yet
+-- (e.g., because the target file isn't loaded in a buffer).
+local pending_diffs = {}
+
+-- Stores the final outcome of diffs (accepted/rejected) to report back to Gemini.
 local resolved_diffs = {}
+
+-- Callback used to send notifications (SSE) back to the bridge server.
 local event_handler = nil
 
+-- Filetypes that should be ignored when searching for a window to show a diff.
 local ignored_filetypes = {
   ["NvimTree"] = true,
   ["neo-tree"] = true,
@@ -15,6 +30,8 @@ local ignored_filetypes = {
   ["snacks_picker_preview"] = true,
 }
 
+---Schedules a function to run on the main Neovim event loop.
+---Required when handling RPC requests from the bridge server (which may run in a fast event).
 local function schedule_ui(fn)
   vim.schedule(function()
     local ok, err = pcall(fn)
@@ -24,6 +41,7 @@ local function schedule_ui(fn)
   end)
 end
 
+---Normalizes a file path for consistent indexing.
 local function normalize_path(path)
   if not path or path == "" then
     return nil
@@ -32,8 +50,9 @@ local function normalize_path(path)
   return vim.fs.normalize(path)
 end
 
+---Reads the entire content of a file from disk.
 local function read_file(path)
-  local fd = vim.uv.fs_open(path, "r", 420)
+  local fd = vim.uv.fs_open(path, "r", 420) -- 0644
   if not fd then
     return ""
   end
@@ -49,13 +68,14 @@ local function read_file(path)
   return data
 end
 
+---Writes content to a file, creating parent directories if necessary.
 local function write_file(path, content)
   local dir = vim.fs.dirname(path)
   if dir and dir ~= "" then
     vim.fn.mkdir(dir, "p")
   end
 
-  local fd, err = vim.uv.fs_open(path, "w", 420)
+  local fd, err = vim.uv.fs_open(path, "w", 420) -- 0644
   if not fd then
     return false, err
   end
@@ -69,6 +89,7 @@ local function write_file(path, content)
   return true
 end
 
+---Splits a string into a table of lines.
 local function split_lines(content)
   if content == "" then
     return { "" }
@@ -77,6 +98,7 @@ local function split_lines(content)
   return vim.split(content, "\n", { plain = true })
 end
 
+---Ensures a string ends with exactly one newline.
 local function ensure_trailing_newline(content)
   if content == "" or content:sub(-1) == "\n" then
     return content
@@ -85,6 +107,8 @@ local function ensure_trailing_newline(content)
   return content .. "\n"
 end
 
+---Generates a unified diff between two strings using Neovim's internal diff engine.
+---@return string[] lines A table of lines representing the unified diff
 local function build_unified_diff(original_content, new_content)
   local diff = vim.diff(ensure_trailing_newline(original_content), ensure_trailing_newline(new_content), {
     result_type = "unified",
@@ -99,6 +123,8 @@ local function build_unified_diff(original_content, new_content)
   return vim.split(diff, "\n", { plain = true })
 end
 
+---Synchronizes any loaded buffers for a given file with new content.
+---Only updates buffers that haven't been manually modified to avoid data loss.
 local function sync_loaded_buffers(path, content)
   local normalized = normalize_path(path)
   local lines = split_lines(content)
@@ -109,12 +135,34 @@ local function sync_loaded_buffers(path, content)
       if buf_name == normalized and not vim.bo[buf].modified then
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        -- Reset modified flag since we've just synced with the disk
         vim.bo[buf].modified = false
       end
     end
   end
 end
 
+---Checks if a file is currently loaded in any buffer.
+local function find_loaded_buffer(path)
+  local normalized = normalize_path(path)
+  if not normalized then
+    return nil
+  end
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      local buf_name = normalize_path(vim.api.nvim_buf_get_name(buf))
+      if buf_name == normalized then
+        return buf
+      end
+    end
+  end
+
+  return nil
+end
+
+---Heuristic to find the best window for displaying a diff review.
+---Prefers the largest window that isn't a sidebar or special buffer.
 local function choose_review_window()
   local current_tab = vim.api.nvim_get_current_tabpage()
   local wins = vim.api.nvim_tabpage_list_wins(current_tab)
@@ -141,6 +189,7 @@ local function choose_review_window()
   return best_win or vim.api.nvim_get_current_win()
 end
 
+---Creates a scratch buffer to hold the diff text.
 local function make_review_buffer(path, diff_lines)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buf, "Gemini Diff: " .. path)
@@ -154,6 +203,7 @@ local function make_review_buffer(path, diff_lines)
   return buf
 end
 
+---Renders a floating help line at the top of the diff buffer.
 local function render_help(buf, state)
   vim.api.nvim_buf_clear_namespace(buf, state.help_ns, 0, 1)
   vim.api.nvim_buf_set_extmark(buf, state.help_ns, 0, 0, {
@@ -166,12 +216,14 @@ local function render_help(buf, state)
   })
 end
 
+---Cleans up UI elements and restores window state when a diff review is closed.
 local function cleanup_state(state)
   if state.group then
     pcall(vim.api.nvim_del_augroup_by_id, state.group)
   end
 
   if state.review_win and vim.api.nvim_win_is_valid(state.review_win) then
+    -- If the review was replacing an existing buffer, restore it
     if state.original_buf and vim.api.nvim_buf_is_valid(state.original_buf) then
       vim.api.nvim_win_set_buf(state.review_win, state.original_buf)
       if state.original_cursor then
@@ -185,6 +237,7 @@ local function cleanup_state(state)
   end
 end
 
+---Removes a diff from active tracking and cleans up its UI.
 local function close_state(file_path)
   local key = normalize_path(file_path)
   local state = key and active_diffs[key] or nil
@@ -197,6 +250,32 @@ local function close_state(file_path)
   return state
 end
 
+---Removes a diff from the pending queue.
+local function clear_pending(file_path)
+  local key = normalize_path(file_path)
+  if key then
+    pending_diffs[key] = nil
+  end
+end
+
+---Moves an active diff back to the pending queue (e.g., if its buffer is wiped).
+local function stash_pending_state(state)
+  if not state or not state.old_file then
+    return
+  end
+
+  -- Strip UI-specific state before stashing
+  state.group = nil
+  state.help_ns = nil
+  state.original_buf = nil
+  state.original_content = nil
+  state.original_cursor = nil
+  state.review_buf = nil
+  state.review_win = nil
+  pending_diffs[state.old_file] = state
+end
+
+---Records the outcome of a diff to be reported back to the bridge server.
 local function remember_result(file_path, result)
   local key = normalize_path(file_path)
   if not key then
@@ -208,6 +287,7 @@ local function remember_result(file_path, result)
   resolved_diffs[key] = result
 end
 
+---Sends an asynchronous event back to the Gemini bridge server.
 local function emit_event(method, params)
   if not event_handler then
     return
@@ -219,6 +299,7 @@ local function emit_event(method, params)
   end
 end
 
+---Retrieves the current active state for a file.
 local function get_state(file_path)
   local key = normalize_path(file_path)
   if not key then
@@ -233,6 +314,20 @@ local function get_state(file_path)
   return state
 end
 
+---Retrieves a pending diff for a file.
+local function get_pending(file_path)
+  local key = normalize_path(file_path)
+  if not key then
+    return nil
+  end
+
+  return pending_diffs[key]
+end
+
+---Handles the final decision (Accept/Reject) for a diff in the Neovim UI.
+---If accepted, writes the new content to disk and syncs all open buffers.
+---@param file_path string Path to the file being edited
+---@param accepted boolean Whether the user accepted the changes
 local function finalize_in_editor(file_path, accepted)
   local state, err = get_state(file_path)
   if not state then
@@ -248,6 +343,8 @@ local function finalize_in_editor(file_path, accepted)
     finalContent = state.accepted and state.new_content or nil,
     status = state.accepted and "accepted" or "rejected",
   }
+
+  clear_pending(file_path)
 
   if accepted then
     local ok, write_err = write_file(state.old_file, state.new_content)
@@ -276,6 +373,7 @@ local function finalize_in_editor(file_path, accepted)
   return true
 end
 
+---Configures buffer-local keymaps for the diff review buffer.
 local function set_keymaps(buf, state)
   local opts = { buffer = buf, silent = true, nowait = true }
 
@@ -303,6 +401,59 @@ function M.set_event_handler(handler)
   event_handler = handler
 end
 
+---Internal helper to open the diff review UI.
+local function open_review(state, review_win)
+  local original_buf = vim.api.nvim_win_get_buf(review_win)
+  local original_cursor = vim.api.nvim_win_get_cursor(review_win)
+  local original_content = read_file(state.old_file)
+  local review_buf = make_review_buffer(state.old_file, build_unified_diff(original_content, state.new_content))
+  local unique_id = tostring(vim.uv.hrtime())
+
+  state.accepted = false
+  state.final_content = nil
+  state.group = vim.api.nvim_create_augroup("GeminiCliDiff" .. unique_id, { clear = true })
+  state.help_ns = vim.api.nvim_create_namespace("GeminiCliDiffHelp" .. unique_id)
+  state.original_buf = original_buf
+  state.original_content = original_content
+  state.original_cursor = original_cursor
+  state.resolved = false
+  state.review_buf = review_buf
+  state.review_win = review_win
+
+  active_diffs[state.old_file] = state
+  clear_pending(state.old_file)
+
+  vim.api.nvim_win_set_buf(review_win, review_buf)
+  vim.wo[review_win].wrap = false
+  vim.wo[review_win].number = false
+  vim.wo[review_win].relativenumber = false
+  vim.wo[review_win].cursorline = true
+  vim.wo[review_win].signcolumn = "no"
+
+  set_keymaps(review_buf, state)
+  render_help(review_buf, state)
+
+  -- If the user closes the diff buffer without deciding, stash it as pending
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = state.group,
+    buffer = review_buf,
+    callback = function()
+      if active_diffs[state.old_file] and not active_diffs[state.old_file].resolved then
+        local stashed = active_diffs[state.old_file]
+        active_diffs[state.old_file] = nil
+        stash_pending_state(stashed)
+        logger.info("diff", "Deferred Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
+      end
+    end,
+  })
+
+  vim.api.nvim_set_current_win(review_win)
+  logger.info("diff", "Opened Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
+end
+
+---Entry point for opening a diff (called via MCP).
+---If the file is already open, starts the review immediately.
+---Otherwise, queues the diff as pending.
 function M.open_diff(params)
   if vim.in_fast_event() then
     schedule_ui(function()
@@ -325,53 +476,23 @@ function M.open_diff(params)
   end
 
   close_state(old_file)
-
-  local review_win = choose_review_window()
-  local original_buf = vim.api.nvim_win_get_buf(review_win)
-  local original_cursor = vim.api.nvim_win_get_cursor(review_win)
-  local original_content = read_file(old_file)
-  local review_buf = make_review_buffer(old_file, build_unified_diff(original_content, new_content))
-  local unique_id = tostring(vim.uv.hrtime())
   local state = {
     accept_key = accept_key,
-    accepted = false,
-    final_content = nil,
-    group = vim.api.nvim_create_augroup("GeminiCliDiff" .. unique_id, { clear = true }),
-    help_ns = vim.api.nvim_create_namespace("GeminiCliDiffHelp" .. unique_id),
     new_content = new_content,
     old_file = old_file,
-    original_buf = original_buf,
-    original_content = original_content,
-    original_cursor = original_cursor,
     reject_key = reject_key,
-    resolved = false,
-    review_buf = review_buf,
-    review_win = review_win,
   }
-  active_diffs[old_file] = state
 
-  vim.api.nvim_win_set_buf(review_win, review_buf)
-  vim.wo[review_win].wrap = false
-  vim.wo[review_win].number = false
-  vim.wo[review_win].relativenumber = false
-  vim.wo[review_win].cursorline = true
-  vim.wo[review_win].signcolumn = "no"
+  if not find_loaded_buffer(old_file) then
+    pending_diffs[old_file] = state
+    logger.info("diff", "Queued Gemini diff for " .. vim.fn.fnamemodify(old_file, ":."))
+    return {
+      filePath = old_file,
+      status = "pending",
+    }
+  end
 
-  set_keymaps(review_buf, state)
-  render_help(review_buf, state)
-
-  vim.api.nvim_create_autocmd("BufWipeout", {
-    group = state.group,
-    buffer = review_buf,
-    callback = function()
-      if active_diffs[old_file] and not active_diffs[old_file].resolved then
-        finalize_in_editor(old_file, false)
-      end
-    end,
-  })
-
-  vim.api.nvim_set_current_win(review_win)
-  logger.info("diff", "Opened Gemini diff for " .. vim.fn.fnamemodify(old_file, ":."))
+  open_review(state, choose_review_window())
 
   return {
     filePath = old_file,
@@ -379,6 +500,8 @@ function M.open_diff(params)
   }
 end
 
+---Checks the status of a diff for a given file.
+---Returns whether it's active, pending, or recently resolved.
 function M.close_diff(file_path)
   local key = normalize_path(file_path)
   if vim.in_fast_event() then
@@ -404,10 +527,28 @@ function M.close_diff(file_path)
         finalContent = state.new_content,
       }
     end
+
+    local pending = key and pending_diffs[key] or nil
+    if pending then
+      return {
+        filePath = key,
+        status = "pending",
+        finalContent = pending.new_content,
+      }
+    end
   end
 
   local state, err = get_state(file_path)
   if not state then
+    local pending = key and pending_diffs[key] or nil
+    if pending then
+      return {
+        filePath = key,
+        status = "pending",
+        finalContent = pending.new_content,
+      }
+    end
+
     local resolved = key and resolved_diffs[key] or nil
     if resolved then
       return {
@@ -435,6 +576,36 @@ function M.close_diff(file_path)
   close_state(file_path)
   remember_result(state.old_file, result)
   return result
+end
+
+---Checks if there is a pending diff for a buffer being opened.
+---If so, offers to show the diff immediately.
+function M.maybe_open_pending_for_buffer(bufnr)
+  if vim.in_fast_event() then
+    schedule_ui(function()
+      M.maybe_open_pending_for_buffer(bufnr)
+    end)
+    return
+  end
+
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local path = normalize_path(vim.api.nvim_buf_get_name(bufnr))
+  if not path or active_diffs[path] then
+    return
+  end
+
+  local pending = get_pending(path)
+  if not pending then
+    return
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  if vim.api.nvim_win_is_valid(current_win) and vim.api.nvim_win_get_buf(current_win) == bufnr then
+    open_review(pending, current_win)
+  end
 end
 
 return M

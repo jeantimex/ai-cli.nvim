@@ -1,9 +1,29 @@
 ---@brief Manages configuration for the Gemini CLI Neovim integration.
+--- This module handles the default settings, validation of user overrides,
+--- and merging user configuration into the active state.
 ---@module 'gemini_cli.config'
 
 local M = {}
 
----@type table
+---@class GeminiConfig
+---@field auto_start boolean Whether to automatically start the bridge server (currently unused in init)
+---@field terminal_cmd string The shell command used to launch the Gemini CLI
+---@field env table Environment variables to inject into the Gemini terminal process
+---@field log_level "trace"|"debug"|"info"|"warn"|"error" Minimum level for logging
+---@field terminal GeminiTerminalConfig Terminal window settings
+---@field diff GeminiDiffConfig Diff review settings
+
+---@class GeminiTerminalConfig
+---@field split_side "left"|"right" Which side of the screen to open the terminal on
+---@field split_width_percentage number Width of the terminal split (0.0 to 1.0)
+---@field auto_close boolean Whether to close the terminal window when the process exits
+
+---@class GeminiDiffConfig
+---@field accept_key string Keybinding to apply changes in diff view
+---@field reject_key string Keybinding to reject changes in diff view
+
+--- Default configuration values
+---@type GeminiConfig
 M.defaults = {
   auto_start = true,
   terminal_cmd = "gemini",
@@ -20,7 +40,8 @@ M.defaults = {
   },
 }
 
----Validates the provided configuration table.
+---Validates the provided configuration table against the expected schema.
+---Throws an error if any required field is missing or has an invalid type.
 ---@param config table The configuration table to validate.
 ---@return boolean true if the configuration is valid.
 function M.validate(config)
@@ -59,6 +80,7 @@ function M.validate(config)
 end
 
 ---Applies user configuration on top of default settings.
+---Uses a deep merge to ensure nested tables like `terminal` are correctly updated.
 ---@param user_config table|nil The user-provided configuration table.
 ---@return table config The final, validated configuration table.
 function M.apply(user_config)

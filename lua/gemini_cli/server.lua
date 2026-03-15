@@ -1,19 +1,32 @@
+---@module 'gemini_cli.server'
+--- Implements a Model Context Protocol (MCP) bridge server.
+--- This server runs inside Neovim and listens on a random local port.
+--- It provides an HTTP interface for gemini-cli to call Neovim-specific tools
+--- like 'openDiff' and 'closeDiff', and uses SSE (Server-Sent Events) to
+--- notify the CLI about user actions in the editor.
 local M = {}
 local logger = require("gemini_cli.logger")
 local lockfile = require("gemini_cli.lockfile")
 local diff = require("gemini_cli.diff")
 
+-- The TCP server handle (libuv)
 local server_handle = nil
+-- The port Neovim is listening on
 local port = nil
+-- A random token required in the 'Authorization: Bearer <token>' header
 local auth_token = nil
+-- List of active SSE (Server-Sent Events) clients
 local sse_clients = {}
 
+-- Current version of the Model Context Protocol
 local MCP_PROTOCOL_VERSION = "2024-11-05"
 
+---Generates a cryptographically-insecure but sufficient random token for local auth.
 local function make_token()
   return tostring(vim.uv.hrtime()) .. "-" .. tostring(math.random(100000, 999999))
 end
 
+---Gracefully closes a TCP client connection.
 local function close_client(client)
   if not client or client:is_closing() then
     return
@@ -27,6 +40,7 @@ local function close_client(client)
   end)
 end
 
+---Removes a client from the active SSE broadcast list.
 local function remove_sse_client(client)
   for index, entry in ipairs(sse_clients) do
     if entry.client == client then
@@ -36,6 +50,11 @@ local function remove_sse_client(client)
   end
 end
 
+---Writes a raw HTTP response to a client.
+---@param client any The libuv TCP client
+---@param status string HTTP status line (e.g., "200 OK")
+---@param body string Response body
+---@param headers table|nil Optional headers
 local function write_http(client, status, body, headers)
   headers = headers or {}
   headers["Content-Type"] = headers["Content-Type"] or "application/json"
@@ -54,10 +73,13 @@ local function write_http(client, status, body, headers)
   end)
 end
 
+---Writes a JSON-encoded HTTP response.
 local function write_json(client, status, payload)
   write_http(client, status, vim.json.encode(payload))
 end
 
+---Sends a message to an SSE client using the 'message' event type.
+---@return boolean success Whether the write was successful
 local function write_sse(client, payload)
   if not client or client:is_closing() then
     return false
@@ -81,6 +103,7 @@ local function write_sse(client, payload)
   return true
 end
 
+---Initializes an SSE stream on a client connection.
 local function open_sse_stream(client)
   local lines = {
     "HTTP/1.1 200 OK",
@@ -96,6 +119,7 @@ local function open_sse_stream(client)
   table.insert(sse_clients, { client = client })
 end
 
+---Responds with a 401 Unauthorized JSON-RPC error.
 local function unauthorized(client)
   write_json(client, "401 Unauthorized", {
     jsonrpc = "2.0",
@@ -107,6 +131,7 @@ local function unauthorized(client)
   })
 end
 
+---Helpers to construct standard JSON-RPC 2.0 objects.
 local function jsonrpc_result(id, result)
   return {
     jsonrpc = "2.0",
@@ -126,6 +151,8 @@ local function jsonrpc_error(id, code, message)
   }
 end
 
+---Basic HTTP request parser.
+---Note: This does not support chunked encoding or multi-part bodies.
 local function parse_http(raw)
   local header_text, body = raw:match("^(.-)\r\n\r\n(.*)$")
   if not header_text then
@@ -160,6 +187,7 @@ local function parse_http(raw)
   }
 end
 
+---Normalizes argument names between different MCP client implementations.
 local function normalize_open_diff_args(args)
   return {
     old_file_path = args.filePath or args.old_file_path or args.path,
@@ -168,6 +196,7 @@ local function normalize_open_diff_args(args)
   }
 end
 
+---Returns the list of tools available via this MCP server.
 local function list_tools()
   return {
     tools = {
@@ -198,6 +227,7 @@ local function list_tools()
   }
 end
 
+---Dispatches an MCP 'tools/call' request to the appropriate Neovim function.
 local function handle_tool_call(request)
   local params = request.params or {}
   local name = params.name
@@ -248,6 +278,7 @@ local function handle_tool_call(request)
   return jsonrpc_error(request.id, -32601, "Unknown tool: " .. tostring(name))
 end
 
+---Main entry point for handling MCP JSON-RPC requests.
 local function handle_request(request)
   if type(request) ~= "table" then
     return jsonrpc_error(nil, -32600, "Invalid Request")
@@ -286,6 +317,10 @@ local function handle_request(request)
   return jsonrpc_error(request.id, -32601, "Method not found: " .. tostring(method))
 end
 
+---Starts the MCP bridge server.
+---@return boolean success Whether the server started
+---@return number|string result The port number or error message
+---@return string|nil token The authentication token
 function M.start()
   if server_handle then
     return true, port, auth_token
@@ -295,7 +330,7 @@ function M.start()
   auth_token = make_token()
 
   local tcp = vim.uv.new_tcp()
-  local success, err = tcp:bind("127.0.0.1", 0)
+  local success, err = tcp:bind("127.0.0.1", 0) -- Bind to random port
   if not success then
     return false, "Bind failed: " .. err
   end
@@ -321,6 +356,7 @@ function M.start()
         return
       end
 
+      -- If we've already responded to this request (e.g., it was a POST), ignore further data
       if handled then
         if not data then
           remove_sse_client(client)
@@ -334,6 +370,7 @@ function M.start()
         local raw = table.concat(chunks, "")
         local http_request, parse_err = parse_http(raw)
         if not http_request then
+          -- Wait for more data if the request is incomplete
           if parse_err == "Incomplete HTTP request" or parse_err == "Incomplete body" then
             return
           end
@@ -345,11 +382,13 @@ function M.start()
 
         handled = true
 
+        -- All MCP requests should go to /mcp
         if http_request.path ~= "/mcp" then
           write_http(client, "404 Not Found", "")
           return
         end
 
+        -- Verify authentication token
         local auth_header = http_request.headers.authorization or ""
         local expected = "Bearer " .. auth_token
         if auth_header ~= expected then
@@ -357,11 +396,13 @@ function M.start()
           return
         end
 
+        -- GET requests initiate the SSE event stream
         if http_request.method == "GET" then
           open_sse_stream(client)
           return
         end
 
+        -- POST requests carry JSON-RPC MCP calls
         if http_request.method ~= "POST" then
           write_http(client, "405 Method Not Allowed", "")
           return
@@ -375,6 +416,7 @@ function M.start()
 
         local response = handle_request(request)
         if response == nil then
+          -- For notifications that don't return a response
           write_http(client, "202 Accepted", "")
           return
         end
@@ -389,11 +431,15 @@ function M.start()
   end)
 
   server_handle = tcp
+  -- Write port/token to a lockfile so external tools can find us
   lockfile.create(port, auth_token)
   logger.info("server", "Gemini MCP bridge started on port " .. port)
   return true, port, auth_token
 end
 
+---Broadcasts an asynchronous notification to all connected SSE clients.
+---@param method string The MCP notification method (e.g., 'ide/diffAccepted')
+---@param params table The notification parameters
 function M.notify(method, params)
   local payload = {
     jsonrpc = "2.0",
@@ -409,6 +455,7 @@ function M.notify(method, params)
   end
 end
 
+---Stops the bridge server and cleans up resources.
 function M.stop()
   if server_handle then
     lockfile.remove(port)
