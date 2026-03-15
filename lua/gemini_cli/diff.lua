@@ -237,7 +237,7 @@ local function render_help(buf, state)
       { " " .. state.reject_key .. " reject ", "DiffDelete" },
       { " q close ", "Comment" },
     },
-    virt_text_pos = "right_align",
+    virt_text_pos = "overlay",
   })
 end
 

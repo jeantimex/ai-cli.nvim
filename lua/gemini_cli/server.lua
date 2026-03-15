@@ -29,6 +29,7 @@ local MCP_PROTOCOL_VERSION = "2024-11-05"
 
 ---Generates a cryptographically-insecure but sufficient random token for local auth.
 ---Uses high-resolution time and a random number to minimize collisions.
+---@return string token The generated token
 local function make_token()
   return tostring(vim.uv.hrtime()) .. "-" .. tostring(math.random(100000, 999999))
 end
@@ -161,6 +162,7 @@ end
 ---Constructs a standard JSON-RPC 2.0 result object.
 ---@param id number|string|nil Request identifier
 ---@param result any The result payload
+---@return table response The JSON-RPC response object
 local function jsonrpc_result(id, result)
   return {
     jsonrpc = "2.0",
@@ -173,6 +175,7 @@ end
 ---@param id number|string|nil Request identifier
 ---@param code number Error code
 ---@param message string Error message
+---@return table response The JSON-RPC error object
 local function jsonrpc_error(id, code, message)
   return {
     jsonrpc = "2.0",
@@ -187,7 +190,7 @@ end
 ---Basic HTTP request parser for the bridge server.
 ---Supports simple GET and POST requests.
 ---Note: Does NOT support chunked encoding or multi-part bodies.
----@param raw string The raw raw data from the socket
+---@param raw string The raw data from the socket
 ---@return table|nil request The parsed request object, or nil if incomplete
 ---@return string|nil error Error message if parsing failed or data is incomplete
 local function parse_http(raw)
@@ -229,6 +232,8 @@ local function parse_http(raw)
 end
 
 ---Normalizes argument names between different MCP client implementations.
+---@param args table Raw arguments from the MCP request
+---@return table normalized Normalized arguments
 local function normalize_open_diff_args(args)
   return {
     old_file_path = args.filePath or args.old_file_path or args.path,
@@ -238,6 +243,7 @@ local function normalize_open_diff_args(args)
 end
 
 ---Returns the list of tools available via this MCP server.
+---@return table tools The tools list in MCP format
 local function list_tools()
   return {
     tools = {
@@ -269,6 +275,8 @@ local function list_tools()
 end
 
 ---Dispatches an MCP 'tools/call' request to the appropriate Neovim function.
+---@param request table The JSON-RPC request object
+---@return table response The JSON-RPC response object
 local function handle_tool_call(request)
   local params = request.params or {}
   local name = params.name
@@ -320,6 +328,8 @@ local function handle_tool_call(request)
 end
 
 ---Main entry point for handling MCP JSON-RPC requests.
+---@param request table The decoded JSON-RPC request
+---@return table|nil response The JSON-RPC response, or nil for notifications
 local function handle_request(request)
   if type(request) ~= "table" then
     return jsonrpc_error(nil, -32600, "Invalid Request")
@@ -476,11 +486,6 @@ function M.start()
   lockfile.create(port, auth_token)
   logger.info("server", "Gemini MCP bridge started on port " .. port)
   return true, port, auth_token
-end
-
----Broadcasts an asynchronous notification to all connected SSE clients.
----@param method string The MCP notification method (e.g., 'ide/diffAccepted')
----@param params table The notification parameters
 function M.notify(method, params)
   local payload = {
     jsonrpc = "2.0",
@@ -511,6 +516,8 @@ function M.stop()
   end
 end
 
+---Returns the port the server is listening on.
+---@return number|nil port The TCP port or nil if not running
 function M.get_port()
   return port
 end
