@@ -14,19 +14,27 @@ local winid = nil
 -- Job ID of the terminal process (returned by termopen)
 local jobid = nil
 
----@type table active terminal configuration
+---@type table|nil Active terminal configuration
 local config = nil
+-- Callback function triggered when there is terminal activity (output)
 local activity_handler = nil
+-- Autocmd group ID for terminal-related events
+local terminal_group = nil
 
 ---Sets the base configuration for terminal management.
+---@param term_config table The configuration table
 function M.setup(term_config)
   config = term_config
 end
 
+---Sets the handler to be called when activity is detected in the terminal.
+---@param handler function The callback function
 function M.set_activity_handler(handler)
   activity_handler = handler
 end
 
+---Notifies the activity handler that something happened in the terminal.
+---Used to trigger UI updates or notifications.
 local function notify_activity()
   if not activity_handler then
     return
@@ -38,6 +46,9 @@ local function notify_activity()
   end
 end
 
+---Formats a numeric color value into a hex string (e.g., #RRGGBB).
+---@param color number|nil The color as an integer
+---@return string|nil The formatted hex string or nil if input is invalid
 local function format_hex_color(color)
   if type(color) ~= "number" then
     return nil
@@ -46,6 +57,8 @@ local function format_hex_color(color)
   return string.format("#%06x", color)
 end
 
+---Retrieves the background color of the 'Normal' highlight group.
+---@return string|nil The hex color string or nil if not found
 local function get_normal_background()
   local ok, normal = pcall(vim.api.nvim_get_hl, 0, { name = "Normal", link = false })
   if not ok or not normal then
@@ -55,6 +68,9 @@ local function get_normal_background()
   return format_hex_color(normal.bg)
 end
 
+---Applies consistent window styling to the terminal window.
+---Sets 'winhighlight' to ensure the terminal looks integrated.
+---@param target_win number The window ID to style
 local function apply_terminal_window_style(target_win)
   if not target_win or not vim.api.nvim_win_is_valid(target_win) then
     return
@@ -63,6 +79,9 @@ local function apply_terminal_window_style(target_win)
   vim.wo[target_win].winhighlight = "Normal:Normal,NormalNC:Normal,EndOfBuffer:Normal,SignColumn:Normal"
 end
 
+---Synchronizes terminal color palette with the editor's background.
+---Sets terminal_color_0 and terminal_color_8 to match the 'Normal' bg.
+---@param target_buf number The buffer ID to apply colors to
 local function apply_terminal_palette(target_buf)
   if not target_buf or not vim.api.nvim_buf_is_valid(target_buf) then
     return
@@ -77,11 +96,80 @@ local function apply_terminal_palette(target_buf)
   vim.api.nvim_buf_set_var(target_buf, "terminal_color_8", background)
 end
 
----Resets internal state variables.
+---Configures buffer-local options for the terminal.
+---Sets name, filetype, and hides it from the buffer list.
+---@param target_buf number The buffer ID to configure
+local function configure_terminal_buffer(target_buf)
+  if not target_buf or not vim.api.nvim_buf_is_valid(target_buf) then
+    return
+  end
+
+  pcall(vim.api.nvim_buf_set_name, target_buf, "gemini://cli")
+  vim.bo[target_buf].buflisted = false
+  vim.bo[target_buf].bufhidden = "hide"
+  vim.bo[target_buf].filetype = "gemini-cli"
+  vim.bo[target_buf].swapfile = false
+end
+
+---Resets internal state variables and cleans up autocommands.
 local function cleanup_state()
+  if terminal_group then
+    pcall(vim.api.nvim_del_augroup_by_id, terminal_group)
+    terminal_group = nil
+  end
   bufnr = nil
   winid = nil
   jobid = nil
+end
+
+---Searches for all windows displaying the terminal buffer.
+---@param current_tab_only boolean If true, only look in the current tabpage
+---@return number[] A list of window IDs
+local function find_terminal_windows(current_tab_only)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return {}
+  end
+
+  local wins = current_tab_only and vim.api.nvim_tabpage_list_wins(vim.api.nvim_get_current_tabpage()) or vim.api.nvim_list_wins()
+  local matches = {}
+
+  for _, win in ipairs(wins) do
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
+      table.insert(matches, win)
+    end
+  end
+
+  return matches
+end
+
+---Ensures only one terminal window exists and updates the tracked winid.
+---Closes redundant windows and applies styling to the remaining one.
+---@param preferred_win number|nil A window ID that should be kept if possible
+---@return number|nil The ID of the window that was kept
+local function normalize_terminal_windows(preferred_win)
+  local wins = find_terminal_windows(true)
+  if #wins == 0 then
+    return nil
+  end
+
+  local keep = nil
+  if preferred_win and vim.api.nvim_win_is_valid(preferred_win) and vim.api.nvim_win_get_buf(preferred_win) == bufnr then
+    keep = preferred_win
+  elseif winid and vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
+    keep = winid
+  else
+    keep = wins[1]
+  end
+
+  for _, win in ipairs(wins) do
+    if win ~= keep and vim.api.nvim_win_is_valid(win) then
+      pcall(vim.api.nvim_win_close, win, false)
+    end
+  end
+
+  winid = keep
+  apply_terminal_window_style(keep)
+  return keep
 end
 
 ---Checks if the terminal buffer is still valid and optionally updates the window ID.
@@ -94,8 +182,7 @@ local function is_valid()
 
   if not winid or not vim.api.nvim_win_is_valid(winid) then
     -- Try to find if the buffer is visible in any window
-    local windows = vim.api.nvim_list_wins()
-    for _, win in ipairs(windows) do
+    for _, win in ipairs(find_terminal_windows(false)) do
       if vim.api.nvim_win_get_buf(win) == bufnr then
         winid = win
         return true
@@ -111,20 +198,7 @@ end
 ---Checks if the terminal window is currently visible in the current tab.
 ---@return boolean visible
 local function is_terminal_visible()
-  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return false
-  end
-
-  local windows = vim.api.nvim_list_wins()
-  for _, win in ipairs(windows) do
-    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
-      winid = win
-      return true
-    end
-  end
-
-  winid = nil
-  return false
+  return normalize_terminal_windows() ~= nil
 end
 
 ---Moves focus to the terminal window and enters insert mode.
@@ -189,7 +263,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
 
   -- If terminal already exists, just ensure it's visible
   if is_valid() then
-    if not winid or not vim.api.nvim_win_is_valid(winid) then
+    if not is_terminal_visible() then
       show_hidden_terminal(effective_config, focus)
     else
       if focus then
@@ -215,12 +289,15 @@ function M.open(cmd_string, env_table, effective_config, focus)
 
   local term_opts = {
     on_stdout = function()
+      -- Notify about terminal activity on standard output
       vim.schedule(notify_activity)
     end,
     on_stderr = function()
+      -- Notify about terminal activity on standard error
       vim.schedule(notify_activity)
     end,
     on_exit = function(job_id, _, _)
+      -- Handle terminal process termination
       vim.schedule(function()
         if job_id == jobid then
           logger.debug("terminal", "Terminal process exited")
@@ -228,7 +305,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
           local current_bufnr = bufnr
           cleanup_state()
 
-          -- Optionally close the window when the process finishes
+          -- Optionally close the window when the process finishes if auto_close is enabled
           if effective_config.auto_close and current_winid and vim.api.nvim_win_is_valid(current_winid) then
             if current_bufnr and vim.api.nvim_buf_is_valid(current_bufnr) then
               if vim.api.nvim_win_get_buf(current_winid) == current_bufnr then
@@ -260,8 +337,17 @@ function M.open(cmd_string, env_table, effective_config, focus)
 
   winid = new_winid
   bufnr = new_bufnr
-  -- Prevent the buffer from being deleted when the window is closed
-  vim.bo[bufnr].bufhidden = "hide"
+  configure_terminal_buffer(bufnr)
+
+  terminal_group = vim.api.nvim_create_augroup("GeminiTerminalWindow", { clear = true })
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "TabEnter", "WinEnter" }, {
+    group = terminal_group,
+    callback = function()
+      if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        normalize_terminal_windows(vim.api.nvim_get_current_win())
+      end
+    end,
+  })
 
   if focus then
     focus_terminal()
