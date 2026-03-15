@@ -16,16 +16,20 @@ local defaults_path = nil
 local refresh_pending = false
 
 ---Writes a temporary JSON file containing system-level defaults for gemini-cli.
----This is used to inform the CLI that it is running in an IDE-like environment.
+---This file informs the `gemini-cli` process that it is running inside an IDE
+---(Neovim), enabling specialized behavior like the RPC bridge for code edits.
 ---@return string|nil path The path to the created file, or nil on failure
 ---@return string|nil error Error message if creation failed
 local function write_system_defaults()
+  -- Use a predictable path in the OS temporary directory
   local path = vim.fs.joinpath(vim.uv.os_tmpdir(), "gemini-cli.nvim-system-defaults.json")
   local file = io.open(path, "w")
   if not file then
     return nil, "Failed to create Gemini system-defaults file"
   end
 
+  -- Enable IDE mode in the CLI. This tells the CLI to expect an RPC server
+  -- on the port provided in GEMINI_CLI_IDE_SERVER_PORT.
   file:write(vim.json.encode({
     ide = {
       enabled = true,
@@ -35,19 +39,28 @@ local function write_system_defaults()
   return path
 end
 
+---Refreshes all valid, unmodified file buffers by checking for changes on disk.
+---This is debounced to avoid performance hits during rapid file system activity.
 local function refresh_open_file_buffers()
   if refresh_pending then
     return
   end
 
   refresh_pending = true
+  -- 150ms debounce window to batch multiple file changes
   vim.defer_fn(function()
     refresh_pending = false
 
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      -- Only refresh buffers that:
+      -- 1. Are valid and loaded
+      -- 2. Have a file name (not scratch buffers)
+      -- 3. Are normal files (buftype == "")
+      -- 4. Are NOT modified (we don't want to overwrite unsaved user changes)
       if vim.api.nvim_buf_is_valid(buf) then
         local name = vim.api.nvim_buf_get_name(buf)
         if name ~= "" and vim.bo[buf].buftype == "" and not vim.bo[buf].modified then
+          -- checktime reloads the buffer from disk if it changed
           pcall(vim.api.nvim_buf_call, buf, function()
             vim.cmd("silent! checktime")
           end)
@@ -67,10 +80,11 @@ M.state = {
 ---Sets up logging, terminal settings, diff handling, and starts the bridge server.
 ---@param user_config table|nil User configuration overrides
 function M.setup(user_config)
-  -- Merge user config with defaults
+  -- Merge user config with defaults and initialize sub-modules
   M.state.config = config_module.apply(user_config)
   logger.setup(M.state.config)
   terminal.setup(M.state.config.terminal)
+  -- The terminal module calls this handler when the user interacts with the terminal
   terminal.set_activity_handler(refresh_open_file_buffers)
   diff.setup(M.state.config)
 
@@ -78,16 +92,18 @@ function M.setup(user_config)
   -- to send commands back to Neovim (e.g., to apply code diffs or open files).
   local ok, bridge_port = server.start()
   if ok and bridge_port then
-    -- Inject environment variables so gemini-cli knows how to connect to this Neovim instance
+    -- Inject environment variables so gemini-cli knows how to connect to this Neovim instance.
+    -- These are picked up by the CLI process when it starts in the terminal.
     M.state.config.env.GEMINI_CLI_IDE_SERVER_PORT = tostring(bridge_port)
     M.state.config.env.GEMINI_CLI_IDE_PID = tostring(vim.fn.getpid())
-    -- Route bridge server events (like code edits) to the diff module
+    -- Route bridge server events (like code edits) to the diff module for UI handling
     diff.set_event_handler(server.notify)
   else
     logger.warn("init", "Gemini IDE bridge failed to start:", bridge_port)
   end
 
-  -- Ensure the system defaults file exists for gemini-cli to read
+  -- Ensure the system defaults file exists for gemini-cli to read.
+  -- This file tells the CLI to look for the environment variables above.
   defaults_path = defaults_path or write_system_defaults()
   if defaults_path then
     M.state.config.env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH = defaults_path
@@ -95,23 +111,25 @@ function M.setup(user_config)
     logger.warn("init", "Gemini IDE defaults file could not be created.")
   end
 
-  -- Set standard environment variables for Neovim integration
+  -- Set standard environment variables for Neovim integration.
+  -- NVIM is used for 'nvim --remote' and other RPC calls.
   M.state.config.env.NVIM = vim.v.servername
   M.state.config.env.EDITOR = "nvim"
 
   -- Enable auto-reloading of files. When gemini-cli modifies a file on disk,
   -- Neovim will detect it and reload the buffer automatically if it's not modified.
   vim.o.autoread = true
-  vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "CursorHoldI", "FocusGained" }, {
+  vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "BufReadPost", "CursorHold", "CursorHoldI", "FocusGained" }, {
     group = vim.api.nvim_create_augroup("GeminiAutoread", { clear = true }),
     callback = function(args)
-      -- Only trigger checktime if not in command-line mode to avoid interruptions
+      -- Only trigger checktime if not in command-line mode to avoid interrupting the user's typing
       if vim.fn.mode() ~= "c" then
         refresh_open_file_buffers()
       end
 
-      -- If we're entering a buffer that has a pending diff from Gemini, offer to show it
-      if args.event == "BufEnter" then
+      -- If we're entering a buffer that has a pending diff from Gemini (stored in memory),
+      -- offer to show the diff UI.
+      if args.event == "BufEnter" or args.event == "BufWinEnter" or args.event == "BufReadPost" then
         diff.maybe_open_pending_for_buffer(args.buf)
       end
     end,

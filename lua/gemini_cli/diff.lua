@@ -161,6 +161,27 @@ local function find_loaded_buffer(path)
   return nil
 end
 
+local function find_window_for_buffer(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(current_tab)) do
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
+      return win
+    end
+  end
+
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
+      return win
+    end
+  end
+
+  return nil
+end
+
 ---Heuristic to find the best window for displaying a diff review.
 ---Prefers the largest window that isn't a sidebar or special buffer.
 local function choose_review_window()
@@ -452,7 +473,7 @@ local function open_review(state, review_win)
 end
 
 ---Entry point for opening a diff (called via MCP).
----If the file is already open, starts the review immediately.
+---If the file is already visible, starts the review immediately.
 ---Otherwise, queues the diff as pending.
 function M.open_diff(params)
   if vim.in_fast_event() then
@@ -483,7 +504,9 @@ function M.open_diff(params)
     reject_key = reject_key,
   }
 
-  if not find_loaded_buffer(old_file) then
+  local target_buf = find_loaded_buffer(old_file)
+  local target_win = target_buf and find_window_for_buffer(target_buf) or nil
+  if not target_win then
     pending_diffs[old_file] = state
     logger.info("diff", "Queued Gemini diff for " .. vim.fn.fnamemodify(old_file, ":."))
     return {
@@ -492,7 +515,7 @@ function M.open_diff(params)
     }
   end
 
-  open_review(state, choose_review_window())
+  open_review(state, target_win)
 
   return {
     filePath = old_file,
@@ -579,7 +602,7 @@ function M.close_diff(file_path)
 end
 
 ---Checks if there is a pending diff for a buffer being opened.
----If so, offers to show the diff immediately.
+---If so, opens the diff in the window displaying that buffer.
 function M.maybe_open_pending_for_buffer(bufnr)
   if vim.in_fast_event() then
     schedule_ui(function()
@@ -602,9 +625,9 @@ function M.maybe_open_pending_for_buffer(bufnr)
     return
   end
 
-  local current_win = vim.api.nvim_get_current_win()
-  if vim.api.nvim_win_is_valid(current_win) and vim.api.nvim_win_get_buf(current_win) == bufnr then
-    open_review(pending, current_win)
+  local target_win = find_window_for_buffer(bufnr)
+  if target_win then
+    open_review(pending, target_win)
   end
 end
 
