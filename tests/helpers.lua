@@ -29,7 +29,10 @@ function M.wait(ms, predicate, message)
 end
 
 function M.assert_eq(actual, expected, message)
-  assert(actual == expected, message or string.format("Expected %s, got %s", vim.inspect(expected), vim.inspect(actual)))
+  assert(
+    actual == expected,
+    message or string.format("Expected %s, got %s", vim.inspect(expected), vim.inspect(actual))
+  )
 end
 
 return M

@@ -559,8 +559,8 @@ function M.open_diff(params)
 
   local old_file = normalize_path(params.old_file_path or params.filePath or params.path)
   local new_content = params.new_file_contents or params.newContent or params.newText or ""
-  local accept_key = (((M.config or {}).diff or {}).accept_key) or "ga"
-  local reject_key = (((M.config or {}).diff or {}).reject_key) or "gr"
+  local accept_key = ((M.config or {}).diff or {}).accept_key or "ga"
+  local reject_key = ((M.config or {}).diff or {}).reject_key or "gr"
 
   if not old_file then
     error("No target file path provided for diff request.")

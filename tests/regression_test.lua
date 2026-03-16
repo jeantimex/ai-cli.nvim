@@ -27,7 +27,11 @@ local function test_config_and_provider()
 
   local provider = providers.get("gemini")
   helpers.assert_eq(provider.name, "gemini", "Gemini provider should be resolved from registry")
-  helpers.assert_eq(provider.build_command({ terminal_cmd = "my-gemini" }), "my-gemini", "Provider should respect terminal_cmd")
+  helpers.assert_eq(
+    provider.build_command({ terminal_cmd = "my-gemini" }),
+    "my-gemini",
+    "Provider should respect terminal_cmd"
+  )
 
   local env = provider.extend_env({ EXISTING = "1" }, {
     bridge_port = 7777,
@@ -37,7 +41,11 @@ local function test_config_and_provider()
   helpers.assert_eq(env.EXISTING, "1", "Provider env merge should preserve existing keys")
   helpers.assert_eq(env.GEMINI_CLI_IDE_SERVER_PORT, "7777", "Provider should set bridge port env")
   helpers.assert_eq(env.GEMINI_CLI_IDE_PID, "1234", "Provider should set pid env")
-  helpers.assert_eq(env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH, "/tmp/gemini-defaults.json", "Provider should set defaults path env")
+  helpers.assert_eq(
+    env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH,
+    "/tmp/gemini-defaults.json",
+    "Provider should set defaults path env"
+  )
 end
 
 local function test_editor_accept_flow()
@@ -72,7 +80,11 @@ local function test_editor_accept_flow()
     return helpers.read_file(path) == "after\n"
   end, "Accepted diff should write the proposed content to disk")
 
-  helpers.assert_eq(vim.api.nvim_buf_get_name(0), vim.fs.normalize(path), "Original file buffer should be restored after apply")
+  helpers.assert_eq(
+    vim.api.nvim_buf_get_name(0),
+    vim.fs.normalize(path),
+    "Original file buffer should be restored after apply"
+  )
 
   local closed = diff.close_diff(path)
   helpers.assert_eq(closed.status, "accepted", "Accepted diff should be remembered as accepted")
@@ -103,7 +115,11 @@ local function test_pending_diff_opens_when_file_is_visited()
   local closed = diff.close_diff(target)
   helpers.assert_eq(closed.status, "closed", "Closing an active pending diff should report a closed review")
   helpers.assert_eq(closed.finalContent, "new\n", "Closed review should still return proposed content")
-  helpers.assert_eq(vim.api.nvim_buf_get_name(0), vim.fs.normalize(target), "Closing a review should restore the target file buffer")
+  helpers.assert_eq(
+    vim.api.nvim_buf_get_name(0),
+    vim.fs.normalize(target),
+    "Closing a review should restore the target file buffer"
+  )
 end
 
 local function test_pending_external_resolution()

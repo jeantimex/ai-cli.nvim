@@ -100,22 +100,25 @@ function M.setup(user_config)
   -- Enable auto-reloading of files. When gemini-cli modifies a file on disk,
   -- Neovim will detect it and reload the buffer automatically if it's not modified.
   vim.o.autoread = true
-  vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "BufReadPost", "CursorHold", "CursorHoldI", "FocusGained" }, {
-    group = vim.api.nvim_create_augroup("GeminiAutoread", { clear = true }),
-    callback = function(args)
-      -- Only trigger checktime if not in command-line mode to avoid interrupting the user's typing
-      if vim.fn.mode() ~= "c" then
-        refresh_open_file_buffers()
-      end
+  vim.api.nvim_create_autocmd(
+    { "BufEnter", "BufWinEnter", "BufReadPost", "CursorHold", "CursorHoldI", "FocusGained" },
+    {
+      group = vim.api.nvim_create_augroup("GeminiAutoread", { clear = true }),
+      callback = function(args)
+        -- Only trigger checktime if not in command-line mode to avoid interrupting the user's typing
+        if vim.fn.mode() ~= "c" then
+          refresh_open_file_buffers()
+        end
 
-      -- If we're entering a buffer that has a pending diff from Gemini (stored in memory),
-      -- offer to show the diff UI.
-      if args.event == "BufEnter" or args.event == "BufWinEnter" or args.event == "BufReadPost" then
-        diff.maybe_open_pending_for_buffer(args.buf)
-        diff.maybe_open_pending()
-      end
-    end,
-  })
+        -- If we're entering a buffer that has a pending diff from Gemini (stored in memory),
+        -- offer to show the diff UI.
+        if args.event == "BufEnter" or args.event == "BufWinEnter" or args.event == "BufReadPost" then
+          diff.maybe_open_pending_for_buffer(args.buf)
+          diff.maybe_open_pending()
+        end
+      end,
+    }
+  )
 
   -- Register :Gemini* commands
   M._create_commands()

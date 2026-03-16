@@ -138,7 +138,8 @@ local function find_terminal_windows(current_tab_only)
     return {}
   end
 
-  local wins = current_tab_only and vim.api.nvim_tabpage_list_wins(vim.api.nvim_get_current_tabpage()) or vim.api.nvim_list_wins()
+  local wins = current_tab_only and vim.api.nvim_tabpage_list_wins(vim.api.nvim_get_current_tabpage())
+    or vim.api.nvim_list_wins()
   local matches = {}
 
   for _, win in ipairs(wins) do
@@ -162,7 +163,11 @@ local function normalize_terminal_windows(preferred_win, current_tab_only)
   end
 
   local keep = nil
-  if preferred_win and vim.api.nvim_win_is_valid(preferred_win) and vim.api.nvim_win_get_buf(preferred_win) == bufnr then
+  if
+    preferred_win
+    and vim.api.nvim_win_is_valid(preferred_win)
+    and vim.api.nvim_win_get_buf(preferred_win) == bufnr
+  then
     keep = preferred_win
   elseif winid and vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
     keep = winid
