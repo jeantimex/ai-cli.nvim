@@ -4,7 +4,7 @@ Neovim integration for coding CLIs.
 
 `ai-cli.nvim` keeps a coding CLI available inside Neovim as a persistent side terminal and opens code suggestions in a reviewable unified diff inside your editor windows.
 
-https://github.com/user-attachments/assets/9f3d3467-a9a7-41c5-9e02-c3589eaed7cd
+https://github.com/user-attachments/assets/a4af46c6-eac8-4c2a-91d0-d57b0cb2b451
 
 ## Installation
 
