@@ -4,6 +4,8 @@ Neovim integration for coding CLIs.
 
 `ai-cli.nvim` keeps a coding CLI available inside Neovim as a persistent side terminal and opens code suggestions in a reviewable unified diff inside your editor windows.
 
+https://github.com/user-attachments/assets/9f3d3467-a9a7-41c5-9e02-c3589eaed7cd
+
 ## Installation
 
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):
@@ -69,6 +71,8 @@ lua/ai-cli/providers/
 - Automatic buffer refresh when the CLI or external commands modify files on disk.
 - Editor-side acceptance and CLI-side approval flows both keep Neovim and the CLI in sync.
 
+<img width="1518" height="955" alt="Image" src="https://github.com/user-attachments/assets/25804ed0-beec-4897-9c05-a3453601d31f" />
+
 ## Code Suggestions
 
 When the active provider proposes an edit, the plugin opens a dedicated diff review in a temporary buffer.
@@ -81,6 +85,8 @@ When the active provider proposes an edit, the plugin opens a dedicated diff rev
 - If a suggested change is applied externally from the terminal pane, the diff view is resolved automatically.
 
 The plugin also enables `autoread`, so files modified on disk by the CLI are automatically reloaded in Neovim.
+
+<img width="1518" height="955" alt="Image" src="https://github.com/user-attachments/assets/8086b52d-9b0e-4567-a657-bd6e1aefe8e1" />
 
 ## Commands
 
