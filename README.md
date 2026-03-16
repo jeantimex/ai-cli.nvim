@@ -1,8 +1,8 @@
 # ai-cli.nvim
 
-Neovim integration for coding CLIs, starting with Gemini CLI.
+Neovim integration for coding CLIs.
 
-This plugin keeps an AI coding CLI available inside Neovim as a persistent side terminal and opens code suggestions in a reviewable unified diff inside your editor windows.
+`ai-cli.nvim` keeps a coding CLI available inside Neovim as a persistent side terminal and opens code suggestions in a reviewable unified diff inside your editor windows.
 
 ## Installation
 
@@ -12,9 +12,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
   "jeantimex/ai-cli.nvim",
   config = function()
-    require("ai-cli").setup({
-      -- your configuration
-    })
+    require("ai-cli").setup()
   end,
 }
 ```
@@ -25,30 +23,28 @@ Default configuration:
 
 ```lua
 require("ai-cli").setup({
-  provider = "gemini", -- current provider adapter
-  auto_start = true, -- start the bridge server automatically
-  terminal_cmd = "gemini", -- command to start the active CLI
-  env = {}, -- extra environment variables
+  provider = "gemini",
+  auto_start = true,
+  terminal_cmd = "gemini",
+  env = {},
   log_level = "info",
   terminal = {
-    split_side = "right", -- open Gemini on the "left" or "right"
-    split_width_percentage = 0.4, -- initial Gemini split width
-    auto_close = true, -- close terminal window when process exits
+    split_side = "right",
+    split_width_percentage = 0.4,
+    auto_close = true,
   },
   diff = {
-    accept_key = "ga", -- accept a Gemini code suggestion
-    reject_key = "gr", -- reject a Gemini code suggestion
+    accept_key = "ga",
+    reject_key = "gr",
   },
 })
 ```
 
-The plugin automatically sets several environment variables for the active CLI. Today the bundled Gemini provider injects:
-- `GEMINI_CLI_IDE_SERVER_PORT`: Port for the Neovim bridge server.
-- `GEMINI_CLI_IDE_PID`: PID of the Neovim process.
-- `NVIM`: Neovim server name.
-- `EDITOR`: Set to `nvim`.
+The core plugin always sets these general Neovim integration variables:
+- `NVIM`: Neovim server name
+- `EDITOR`: `nvim`
 
-Internally, provider-specific setup lives behind a provider module:
+Provider-specific setup lives behind provider modules:
 
 ```text
 lua/ai-cli/providers/
@@ -58,57 +54,106 @@ lua/ai-cli/providers/
 
 ## Features
 
-- Persistent AI terminal split inside Neovim.
+- Persistent terminal split inside Neovim.
 - Native `vsplit` behavior, including mouse drag-resize.
 - Terminal session stays alive when you hide and reopen the side pane.
-- The terminal buffer is treated like a utility pane (`buflisted = false`, custom filetype).
+- Terminal buffer is treated like a utility pane (`buflisted = false`, custom filetype).
 - Local bridge so the active CLI can open and resolve code suggestions directly in Neovim.
 - Unified diff review flow with editor-side accept/reject keymaps.
 - Deferred diff opening for files that are not currently visible.
 - Automatic buffer refresh when the CLI or external commands modify files on disk.
-- Editor-side acceptance and CLI-side "Allow" flows both keep Neovim and the CLI in sync.
+- Editor-side acceptance and CLI-side approval flows both keep Neovim and the CLI in sync.
 
 ## Code Suggestions
 
 When the active provider proposes an edit, the plugin opens a dedicated diff review in a temporary buffer.
 
-- `ga` (default) accepts the suggestion, writes it to disk, and updates any open buffers.
-- `gr` (default) rejects the suggestion.
+- `ga` accepts the suggestion, writes it to disk, and updates any open buffers.
+- `gr` rejects the suggestion.
 - `q` closes the review and rejects it.
-- If the provider edits a file that is not currently visible in Neovim, the suggestion is queued and automatically opens when you visit that file.
-- Opening the diff does not have to steal focus from the terminal pane; you can stay in the CLI and press Enter on "Allow".
+- If the target file is not currently visible in Neovim, the suggestion is queued and automatically opens when you visit that file.
+- Opening the diff does not have to steal focus from the terminal pane.
 - If a suggested change is applied externally from the terminal pane, the diff view is resolved automatically.
 
 The plugin also enables `autoread`, so files modified on disk by the CLI are automatically reloaded in Neovim.
 
 ## Commands
 
-- `:Gemini [args]` - Toggle the Gemini terminal window.
-- `:GeminiOpen [args]` - Open the Gemini terminal window.
-- `:GeminiClose` - Close the Gemini terminal window.
-- `:GeminiWidth 45` - Set Gemini split width to a percentage of the editor width.
-- `:GeminiWider` - Increase Gemini split width.
-- `:GeminiNarrower` - Decrease Gemini split width.
-- `:GeminiAdd` - Helper to add the current file to Gemini's context (prints the `/add` command).
-- `:GeminiRefresh` - Manually reload the current buffer from disk.
+The current command surface is shared plugin behavior:
 
-## Suggested Keymaps
+- `:AiCli [args]` toggles the terminal window
+- `:AiCliOpen [args]` opens the terminal window
+- `:AiCliClose` closes the terminal window
+- `:AiCliWidth 45` sets the split width to a percentage of the editor width
+- `:AiCliWider` increases the split width
+- `:AiCliNarrower` decreases the split width
+- `:AiCliAdd` prints the `/add` helper for the current file
+- `:AiCliRefresh` manually reloads the current buffer from disk
 
-Example `lazy.nvim` config:
+## Minimum Setup
+
+Smallest working setup for the bundled Gemini provider:
 
 ```lua
 {
   "jeantimex/ai-cli.nvim",
   config = function()
-    require("ai-cli").setup()
+    require("ai-cli").setup({
+      provider = "gemini",
+      terminal_cmd = "gemini",
+    })
+  end,
+}
+```
+
+## Gemini CLI Setup
+
+The bundled provider today is Gemini.
+
+Use this when you want to configure Gemini explicitly:
+
+```lua
+require("ai-cli").setup({
+  provider = "gemini",
+  terminal_cmd = "gemini",
+  env = {},
+  terminal = {
+    split_side = "right",
+    split_width_percentage = 0.4,
+    auto_close = true,
+  },
+  diff = {
+    accept_key = "ga",
+    reject_key = "gr",
+  },
+})
+```
+
+The Gemini provider injects these extra environment variables:
+- `GEMINI_CLI_IDE_SERVER_PORT`
+- `GEMINI_CLI_IDE_PID`
+- `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`
+
+It also writes a temporary Gemini system-defaults file so Gemini can discover the Neovim bridge in IDE mode.
+
+Gemini `lazy.nvim` example:
+
+```lua
+{
+  "jeantimex/ai-cli.nvim",
+  config = function()
+    require("ai-cli").setup({
+      provider = "gemini",
+      terminal_cmd = "gemini",
+    })
   end,
   keys = {
-    { "<leader>gg", "<cmd>Gemini<cr>", desc = "Toggle Gemini", mode = "n" },
-    { "<leader>go", "<cmd>GeminiOpen<cr>", desc = "Open Gemini", mode = "n" },
-    { "<leader>gc", "<cmd>GeminiClose<cr>", desc = "Close Gemini", mode = "n" },
-    { "<leader>g>", "<cmd>GeminiWider<cr>", desc = "Gemini Wider", mode = "n" },
-    { "<leader>g<", "<cmd>GeminiNarrower<cr>", desc = "Gemini Narrower", mode = "n" },
-    { "<C-g>", [[<C-\><C-n><cmd>Gemini<cr>]], desc = "Toggle Gemini", mode = "t" },
+    { "<leader>ag", "<cmd>AiCli<cr>", desc = "Toggle AI CLI", mode = "n" },
+    { "<leader>ao", "<cmd>AiCliOpen<cr>", desc = "Open AI CLI", mode = "n" },
+    { "<leader>ac", "<cmd>AiCliClose<cr>", desc = "Close AI CLI", mode = "n" },
+    { "<leader>a>", "<cmd>AiCliWider<cr>", desc = "AI CLI Wider", mode = "n" },
+    { "<leader>a<", "<cmd>AiCliNarrower<cr>", desc = "AI CLI Narrower", mode = "n" },
+    { "<C-g>", [[<C-\><C-n><cmd>AiCli<cr>]], desc = "Toggle AI CLI", mode = "t" },
   },
 }
 ```
@@ -117,51 +162,29 @@ Example `lazy.nvim` config:
 
 - The terminal pane is pinned to its own split and should stay separate from normal code windows.
 - Clicking buffer tabs while focus is inside the terminal should switch files in the code area, not replace the terminal buffer.
-- If the active provider suggests a change for a file you are not currently viewing, just open that file and the unified diff should appear there.
-- You can review changes either from the editor with `ga` / `gr` or from the CLI with the built-in "Allow" action.
+- If the active provider suggests a change for a file you are not currently viewing, open that file and the unified diff should appear there.
+- You can review changes either from the editor with `ga` / `gr` or from the CLI with the built-in approval action.
 - Since the terminal window is a real split, manual mouse resizing works naturally.
 
 ## Extending To Other CLIs
 
-The current plugin ships with a Gemini provider, but the module layout is now set up so new providers can be added without rewriting the editor UX.
+The codebase is split into provider-agnostic editor modules and provider-specific adapters.
 
-The parts that are already generic in spirit:
-
-- terminal split management
-- unified diff review UI
-- pending diff queue
-- buffer refresh and disk sync
-- local bridge server and notification flow
-
-The parts that are currently provider-specific:
-
-- startup environment variables such as `GEMINI_CLI_IDE_SERVER_PORT`
-- the system-defaults file written in `setup()`
-- MCP argument normalization assumptions in the bridge
-- command defaults like `terminal_cmd = "gemini"`
-
-The provider registry already lives here:
-
-```text
-lua/ai-cli/
-  providers/
-    init.lua
-    gemini.lua
-```
-
-Each provider module should own:
-
-- how to build the CLI command
-- which environment variables to inject
-- any provider-specific defaults files
-- request/response normalization for tool calls
-
-The rest of the system should stay provider-agnostic:
-
+Provider-agnostic pieces:
 - `lua/ai-cli/terminal.lua` manages the pinned terminal split
 - `lua/ai-cli/diff.lua` owns the unified diff UI and pending diff queue
 - `lua/ai-cli/server.lua` owns the local bridge transport
 - `lua/ai-cli/init.lua` wires the active provider into the shared UI and sync flow
+
+Provider-specific pieces:
+- `lua/ai-cli/providers/init.lua` resolves the active provider
+- `lua/ai-cli/providers/gemini.lua` defines Gemini-specific command and environment behavior
+
+Each provider module should own:
+- how to build the CLI command
+- which environment variables to inject
+- any provider-specific defaults files
+- request/response normalization for tool calls
 
 To add a new CLI later, the intended path is:
 

@@ -167,7 +167,7 @@ function M.set_width(width_percentage)
     return
   end
 
-  logger.info("command", string.format("Gemini width set to %.0f%%.", result * 100))
+  logger.info("command", string.format("AI CLI width set to %.0f%%.", result * 100))
 end
 
 function M.resize(delta)
@@ -177,10 +177,10 @@ function M.resize(delta)
     return
   end
 
-  logger.info("command", string.format("Gemini width set to %.0f%%.", result * 100))
+  logger.info("command", string.format("AI CLI width set to %.0f%%.", result * 100))
 end
 
----Provides a helper to copy the current file path into the Gemini context.
+---Provides a helper to copy the current file path into the active CLI context.
 ---Currently just logs an instruction, but could be expanded to automate the /add command.
 function M.add_current_file()
   local file_path = vim.fn.expand("%:p")
@@ -189,73 +189,73 @@ function M.add_current_file()
     return
   end
 
-  logger.info("command", "To add this file, type: /add " .. file_path .. " in the Gemini terminal")
+  logger.info("command", "To add this file, type: /add " .. file_path .. " in the AI CLI terminal")
 end
 
----Registers user-facing commands like :Gemini, :GeminiOpen, etc.
+---Registers user-facing commands like :AiCli, :AiCliOpen, etc.
 ---@private
 function M._create_commands()
   local commands = {
-    Gemini = {
+    AiCli = {
       fn = function(opts)
         M.toggle(opts.args)
       end,
       opts = {
         nargs = "*",
-        desc = "Toggle Gemini CLI terminal",
+        desc = "Toggle AI CLI terminal",
       },
     },
-    GeminiOpen = {
+    AiCliOpen = {
       fn = function(opts)
         M.open(opts.args)
       end,
       opts = {
         nargs = "*",
-        desc = "Open Gemini CLI terminal",
+        desc = "Open AI CLI terminal",
       },
     },
-    GeminiClose = {
+    AiCliClose = {
       fn = function()
         M.close()
       end,
       opts = {
-        desc = "Close Gemini CLI terminal",
+        desc = "Close AI CLI terminal",
       },
     },
-    GeminiWidth = {
+    AiCliWidth = {
       fn = function(opts)
         M.set_width(tonumber(opts.args) / 100)
       end,
       opts = {
         nargs = 1,
-        desc = "Set Gemini terminal width percentage",
+        desc = "Set AI CLI terminal width percentage",
       },
     },
-    GeminiWider = {
+    AiCliWider = {
       fn = function()
         M.resize(0.05)
       end,
       opts = {
-        desc = "Make Gemini terminal wider",
+        desc = "Make AI CLI terminal wider",
       },
     },
-    GeminiNarrower = {
+    AiCliNarrower = {
       fn = function()
         M.resize(-0.05)
       end,
       opts = {
-        desc = "Make Gemini terminal narrower",
+        desc = "Make AI CLI terminal narrower",
       },
     },
-    GeminiAdd = {
+    AiCliAdd = {
       fn = function()
         M.add_current_file()
       end,
       opts = {
-        desc = "Add current file to Gemini context",
+        desc = "Add current file to AI CLI context",
       },
     },
-    GeminiRefresh = {
+    AiCliRefresh = {
       fn = function()
         vim.cmd("checktime")
         logger.info("command", "Buffer reloaded from disk.")

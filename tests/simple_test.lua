@@ -9,7 +9,7 @@ vim.opt.rtp = rtp
 -- Load the plugin
 local ai_cli = require("ai-cli")
 ai_cli.setup({
-  log_level = "debug",
+  log_level = "error",
 })
 
 -- Test module existence
@@ -17,8 +17,8 @@ assert(ai_cli ~= nil, "ai-cli module should be loaded")
 
 -- Test command registration
 local commands = vim.api.nvim_get_commands({})
-assert(commands["Gemini"] ~= nil, "Gemini command should be registered")
-assert(commands["GeminiOpen"] ~= nil, "GeminiOpen command should be registered")
-assert(commands["GeminiClose"] ~= nil, "GeminiClose command should be registered")
+assert(commands["AiCli"] ~= nil, "AiCli command should be registered")
+assert(commands["AiCliOpen"] ~= nil, "AiCliOpen command should be registered")
+assert(commands["AiCliClose"] ~= nil, "AiCliClose command should be registered")
 
 print("All basic tests passed!")
