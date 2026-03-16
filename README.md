@@ -17,6 +17,11 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
+If you use `lazy.nvim` lazy-loading and want `:AiCli` commands to work before any keymap is pressed, load the plugin with one of these approaches:
+- `event = "VeryLazy"` (recommended)
+- `cmd = { "AiCli", "AiCliOpen", "AiCliClose", ... }`
+- `lazy = false`
+
 ## Configuration
 
 Default configuration:
@@ -97,6 +102,7 @@ Smallest working setup for the bundled Gemini provider:
 ```lua
 {
   "jeantimex/ai-cli.nvim",
+  event = "VeryLazy",
   config = function()
     require("ai-cli").setup({
       provider = "gemini",
@@ -136,25 +142,18 @@ The Gemini provider injects these extra environment variables:
 
 It also writes a temporary Gemini system-defaults file so Gemini can discover the Neovim bridge in IDE mode.
 
-Gemini `lazy.nvim` example:
+Minimal Gemini `lazy.nvim` setup for developers:
 
 ```lua
 {
   "jeantimex/ai-cli.nvim",
+  event = "VeryLazy",
   config = function()
     require("ai-cli").setup({
       provider = "gemini",
       terminal_cmd = "gemini",
     })
   end,
-  keys = {
-    { "<leader>ag", "<cmd>AiCli<cr>", desc = "Toggle AI CLI", mode = "n" },
-    { "<leader>ao", "<cmd>AiCliOpen<cr>", desc = "Open AI CLI", mode = "n" },
-    { "<leader>ac", "<cmd>AiCliClose<cr>", desc = "Close AI CLI", mode = "n" },
-    { "<leader>a>", "<cmd>AiCliWider<cr>", desc = "AI CLI Wider", mode = "n" },
-    { "<leader>a<", "<cmd>AiCliNarrower<cr>", desc = "AI CLI Narrower", mode = "n" },
-    { "<C-g>", [[<C-\><C-n><cmd>AiCli<cr>]], desc = "Toggle AI CLI", mode = "t" },
-  },
 }
 ```
 
