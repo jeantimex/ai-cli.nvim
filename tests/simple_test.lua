@@ -1,4 +1,4 @@
--- Basic test script for gemini_cli.nvim
+-- Basic test script for ai-cli namespace
 
 -- Set up the runtime path
 local rtp = vim.opt.rtp:get()
@@ -7,13 +7,13 @@ table.insert(rtp, 1, current_dir)
 vim.opt.rtp = rtp
 
 -- Load the plugin
-local gemini_cli = require("gemini_cli")
-gemini_cli.setup({
+local ai_cli = require("ai-cli")
+ai_cli.setup({
   log_level = "debug",
 })
 
 -- Test module existence
-assert(gemini_cli ~= nil, "gemini_cli module should be loaded")
+assert(ai_cli ~= nil, "ai-cli module should be loaded")
 
 -- Test command registration
 local commands = vim.api.nvim_get_commands({})

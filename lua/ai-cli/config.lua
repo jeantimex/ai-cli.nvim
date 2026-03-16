@@ -1,11 +1,12 @@
 ---@brief Manages configuration for the Gemini CLI Neovim integration.
 --- This module handles the default settings, validation of user overrides,
 --- and merging user configuration into the active state.
----@module 'gemini_cli.config'
+---@module 'ai-cli.config'
 
 local M = {}
 
 ---@class GeminiConfig
+---@field provider string Provider adapter name. Defaults to "gemini".
 ---@field auto_start boolean Whether to automatically start the bridge server (currently unused in init)
 ---@field terminal_cmd string The shell command used to launch the Gemini CLI
 ---@field env table Environment variables to inject into the Gemini terminal process
@@ -25,6 +26,7 @@ local M = {}
 --- Default configuration values
 ---@type GeminiConfig
 M.defaults = {
+  provider = "gemini",
   auto_start = true,
   terminal_cmd = "gemini",
   env = {},
@@ -45,6 +47,7 @@ M.defaults = {
 ---@param config table The configuration table to validate.
 ---@return boolean true if the configuration is valid.
 function M.validate(config)
+  assert(type(config.provider) == "string" and config.provider ~= "", "provider must be a non-empty string")
   assert(type(config.auto_start) == "boolean", "auto_start must be a boolean")
   assert(type(config.terminal_cmd) == "string", "terminal_cmd must be a string")
   assert(type(config.env) == "table", "env must be a table")

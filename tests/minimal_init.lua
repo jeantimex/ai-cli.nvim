@@ -4,6 +4,6 @@ table.insert(rtp, 1, current_dir)
 vim.opt.rtp = rtp
 
 -- Load the plugin
-require("gemini_cli").setup({
+require("ai-cli").setup({
   log_level = "debug",
 })

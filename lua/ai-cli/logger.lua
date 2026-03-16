@@ -1,5 +1,5 @@
 ---@brief Centralized logger for Gemini CLI Neovim integration.
----@module 'gemini_cli.logger'
+---@module 'ai-cli.logger'
 local M = {}
 
 --- Available log levels. Higher values are more verbose.

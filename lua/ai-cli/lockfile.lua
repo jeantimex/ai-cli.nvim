@@ -1,4 +1,4 @@
----@module 'gemini_cli.lockfile'
+---@module 'ai-cli.lockfile'
 --- Manages "lockfiles" (discovery files) used by gemini-cli to find active IDE instances.
 --- When the bridge server starts, it writes a JSON file to a well-known temporary directory.
 --- The gemini-cli process scans this directory to identify available Neovim instances

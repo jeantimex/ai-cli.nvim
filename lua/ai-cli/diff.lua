@@ -1,9 +1,9 @@
----@module 'gemini_cli.diff'
+---@module 'ai-cli.diff'
 --- Manages the lifecycle of code diffs proposed by Gemini.
 --- This includes rendering unified diffs in a temporary buffer,
 --- handling user acceptance/rejection, and auto-applying changes to disk.
 local M = {}
-local logger = require("gemini_cli.logger")
+local logger = require("ai-cli.logger")
 
 -- Tracks diffs that are currently being reviewed in a window.
 -- Keyed by normalized absolute file path.
@@ -11,6 +11,8 @@ local active_diffs = {}
 
 -- Tracks diffs that have been proposed but haven't been opened yet
 -- (e.g., because the target file isn't loaded in a buffer).
+-- This queue is intentionally editor-centric and should remain reusable even if
+-- the source of suggestions changes from Gemini to another CLI provider.
 local pending_diffs = {}
 local pending_open_paths = {}
 
@@ -541,6 +543,8 @@ end
 ---Entry point for opening a diff (called via MCP).
 ---If the file is already visible, starts the review immediately.
 ---Otherwise, queues the diff as pending.
+---The diff UI does not need to know which provider produced the suggestion; it
+---only requires a target file path and the proposed file contents.
 function M.open_diff(params)
   if vim.in_fast_event() then
     schedule_ui(function()

@@ -1,43 +1,19 @@
----@module 'gemini_cli'
+---@module 'ai-cli'
 --- Main entry point for the gemini-cli.nvim plugin.
 --- This module handles initialization, terminal management, and the bridge server
 --- that allows gemini-cli to interact with Neovim for code edits.
 local M = {}
 
-local logger = require("gemini_cli.logger")
-local config_module = require("gemini_cli.config")
-local terminal = require("gemini_cli.terminal")
+local logger = require("ai-cli.logger")
+local config_module = require("ai-cli.config")
+local providers = require("ai-cli.providers")
+local terminal = require("ai-cli.terminal")
 
-local server = require("gemini_cli.server")
-local diff = require("gemini_cli.diff")
+local server = require("ai-cli.server")
+local diff = require("ai-cli.diff")
 
--- Path to the temporary system defaults file used to configure gemini-cli
 local defaults_path = nil
 local refresh_pending = false
-
----Writes a temporary JSON file containing system-level defaults for gemini-cli.
----This file informs the `gemini-cli` process that it is running inside an IDE
----(Neovim), enabling specialized behavior like the RPC bridge for code edits.
----@return string|nil path The path to the created file, or nil on failure
----@return string|nil error Error message if creation failed
-local function write_system_defaults()
-  -- Use a predictable path in the OS temporary directory
-  local path = vim.fs.joinpath(vim.uv.os_tmpdir(), "gemini-cli.nvim-system-defaults.json")
-  local file = io.open(path, "w")
-  if not file then
-    return nil, "Failed to create Gemini system-defaults file"
-  end
-
-  -- Enable IDE mode in the CLI. This tells the CLI to expect an RPC server
-  -- on the port provided in GEMINI_CLI_IDE_SERVER_PORT.
-  file:write(vim.json.encode({
-    ide = {
-      enabled = true,
-    },
-  }))
-  file:close()
-  return path
-end
 
 ---Refreshes all valid, unmodified file buffers by checking for changes on disk.
 ---This is debounced to avoid performance hits during rapid file system activity.
@@ -76,6 +52,7 @@ end
 M.state = {
   config = config_module.defaults,
   initialized = false,
+  provider = nil,
 }
 
 ---Initialize the plugin with user-provided configuration.
@@ -84,6 +61,7 @@ M.state = {
 function M.setup(user_config)
   -- Merge user config with defaults and initialize sub-modules
   M.state.config = config_module.apply(user_config)
+  M.state.provider = providers.get(M.state.config.provider)
   logger.setup(M.state.config)
   terminal.setup(M.state.config.terminal)
   -- The terminal module calls this handler when the user interacts with the terminal
@@ -92,24 +70,25 @@ function M.setup(user_config)
 
   -- Start the RPC bridge server. This allows the gemini-cli process (running in the terminal)
   -- to send commands back to Neovim (e.g., to apply code diffs or open files).
+  -- The transport itself is generic enough to survive a later multi-provider refactor;
+  -- the provider-specific part is mostly the env/setup contract around it.
   local ok, bridge_port = server.start()
   if ok and bridge_port then
-    -- Inject environment variables so gemini-cli knows how to connect to this Neovim instance.
-    -- These are picked up by the CLI process when it starts in the terminal.
-    M.state.config.env.GEMINI_CLI_IDE_SERVER_PORT = tostring(bridge_port)
-    M.state.config.env.GEMINI_CLI_IDE_PID = tostring(vim.fn.getpid())
     -- Route bridge server events (like code edits) to the diff module for UI handling
     diff.set_event_handler(server.notify)
   else
     logger.warn("init", "Gemini IDE bridge failed to start:", bridge_port)
   end
 
-  -- Ensure the system defaults file exists for gemini-cli to read.
-  -- This file tells the CLI to look for the environment variables above.
-  defaults_path = defaults_path or write_system_defaults()
-  if defaults_path then
-    M.state.config.env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH = defaults_path
-  else
+  -- Provider-specific IDE defaults live behind the provider adapter so this
+  -- setup flow can stay stable if other CLIs are introduced later.
+  defaults_path = defaults_path or M.state.provider.write_system_defaults()
+  M.state.config.env = M.state.provider.extend_env(M.state.config.env, {
+    bridge_port = ok and bridge_port or nil,
+    defaults_path = defaults_path,
+    pid = vim.fn.getpid(),
+  })
+  if not defaults_path then
     logger.warn("init", "Gemini IDE defaults file could not be created.")
   end
 
@@ -153,7 +132,7 @@ function M.open(args)
     M.setup()
   end
 
-  local cmd = M.state.config.terminal_cmd
+  local cmd = M.state.provider.build_command(M.state.config)
   if args and args ~= "" then
     cmd = cmd .. " " .. args
   end
@@ -168,7 +147,7 @@ function M.toggle(args)
     M.setup()
   end
 
-  local cmd = M.state.config.terminal_cmd
+  local cmd = M.state.provider.build_command(M.state.config)
   if args and args ~= "" then
     cmd = cmd .. " " .. args
   end

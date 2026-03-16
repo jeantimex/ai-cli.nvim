@@ -1,11 +1,11 @@
----@module 'gemini_cli.terminal'
+---@module 'ai-cli.terminal'
 --- Manages the Gemini CLI terminal buffer and window.
 --- This module handles creating the terminal window, managing its visibility,
 --- and tracking the terminal process lifecycle.
 local M = {}
 
-local logger = require("gemini_cli.logger")
-local utils = require("gemini_cli.utils")
+local logger = require("ai-cli.logger")
+local utils = require("ai-cli.utils")
 
 -- Buffer number of the terminal
 local bufnr = nil
