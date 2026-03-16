@@ -122,6 +122,15 @@ Smallest working setup for the bundled Gemini provider:
 
 The bundled provider today is Gemini.
 
+Before using the Gemini provider, install `gemini-cli` first:
+
+```sh
+npm install -g @google/gemini-cli
+```
+
+For more installation details, see:
+- https://geminicli.com/
+
 Use this when you want to configure Gemini explicitly:
 
 ```lua
