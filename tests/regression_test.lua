@@ -62,6 +62,31 @@ local function test_config_and_provider()
   })
   helpers.assert_eq(claude_env.EXISTING, "1", "Claude provider should preserve existing env")
   helpers.assert_eq(claude_env.GEMINI_CLI_IDE_SERVER_PORT, nil, "Claude provider should not inject Gemini env vars")
+
+  local temp_dir = helpers.make_temp_dir()
+  local previous_cwd = vim.uv.cwd()
+  vim.cmd("cd " .. vim.fn.fnameescape(temp_dir))
+
+  local prepared, err = claude.prepare_workspace({}, {
+    bridge_port = 7777,
+    auth_token = "secret-token",
+  })
+  assert(prepared, err or "Claude workspace config should be written")
+
+  local mcp_config = vim.json.decode(helpers.read_file(vim.fs.joinpath(temp_dir, ".mcp.json")))
+  helpers.assert_eq(mcp_config.mcpServers["ai-cli"].type, "http", "Claude MCP config should use HTTP transport")
+  helpers.assert_eq(
+    mcp_config.mcpServers["ai-cli"].url,
+    "http://127.0.0.1:7777/mcp",
+    "Claude MCP config should point at the local bridge"
+  )
+  helpers.assert_eq(
+    mcp_config.mcpServers["ai-cli"].headers.Authorization,
+    "Bearer secret-token",
+    "Claude MCP config should include the bridge auth token"
+  )
+
+  vim.cmd("cd " .. vim.fn.fnameescape(previous_cwd))
 end
 
 local function test_editor_accept_flow()

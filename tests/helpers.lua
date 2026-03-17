@@ -19,6 +19,12 @@ function M.make_temp_file(content)
   return M.real_path(path)
 end
 
+function M.make_temp_dir()
+  local path = vim.fn.tempname()
+  vim.fn.mkdir(path, "p")
+  return M.real_path(path)
+end
+
 function M.real_path(path)
   return vim.uv.fs_realpath(path) or vim.fs.normalize(path)
 end

@@ -225,7 +225,7 @@ Minimal Claude `lazy.nvim` setup for developers:
 }
 ```
 
-This first Claude pass is terminal-first. The shared terminal pane works with Claude today, but automatic Claude-specific MCP bridge wiring is not implemented yet.
+The Claude provider writes a project-local `.mcp.json` entry for `ai-cli` automatically so Claude Code can discover the local bridge and use the shared diff workflow.
 
 ## Workflow Notes
 

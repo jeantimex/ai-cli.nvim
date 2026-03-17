@@ -72,7 +72,7 @@ function M.setup(user_config)
   -- to send commands back to Neovim (e.g., to apply code diffs or open files).
   -- The transport itself is generic enough to survive a later multi-provider refactor;
   -- the provider-specific part is mostly the env/setup contract around it.
-  local ok, bridge_port = server.start()
+  local ok, bridge_port, auth_token = server.start()
   if ok and bridge_port then
     -- Route bridge server events (like code edits) to the diff module for UI handling
     diff.set_event_handler(server.notify)
@@ -83,11 +83,19 @@ function M.setup(user_config)
   -- Provider-specific IDE defaults live behind the provider adapter so this
   -- setup flow can stay stable if other CLIs are introduced later.
   defaults_path = defaults_path or M.state.provider.write_system_defaults()
-  M.state.config.env = M.state.provider.extend_env(M.state.config.env, {
+  local provider_ctx = {
     bridge_port = ok and bridge_port or nil,
+    auth_token = ok and auth_token or nil,
     defaults_path = defaults_path,
     pid = vim.fn.getpid(),
-  })
+  }
+  M.state.config.env = M.state.provider.extend_env(M.state.config.env, provider_ctx)
+  if M.state.provider.prepare_workspace then
+    local workspace_ok, workspace_err = M.state.provider.prepare_workspace(M.state.config, provider_ctx)
+    if workspace_ok == false and workspace_err then
+      logger.warn("init", "Provider workspace setup failed:", workspace_err)
+    end
+  end
   if not defaults_path then
     logger.warn("init", "Gemini IDE defaults file could not be created.")
   end

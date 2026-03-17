@@ -22,6 +22,7 @@ local config = nil
 local activity_handler = nil
 -- Autocmd group ID for terminal-related events
 local terminal_group = nil
+local focus_restore_pending = false
 
 ---Sets the base configuration for terminal management.
 ---@param term_config table The configuration table
@@ -321,6 +322,16 @@ local function focus_terminal()
     return
   end
 
+  local function refresh_terminal_window()
+    if not winid or not vim.api.nvim_win_is_valid(winid) then
+      return
+    end
+
+    local width = vim.api.nvim_win_get_width(winid)
+    pcall(vim.api.nvim_win_set_width, winid, width)
+    vim.cmd("redraw")
+  end
+
   vim.api.nvim_set_current_win(winid)
 
   local function enter_terminal_mode()
@@ -335,10 +346,35 @@ local function focus_terminal()
 
     vim.api.nvim_set_current_win(winid)
     vim.cmd("startinsert")
+    refresh_terminal_window()
   end
 
   enter_terminal_mode()
-  vim.schedule(enter_terminal_mode)
+  vim.schedule(function()
+    enter_terminal_mode()
+    vim.schedule(refresh_terminal_window)
+  end)
+end
+
+local function restore_terminal_input_if_active()
+  if focus_restore_pending then
+    return
+  end
+
+  focus_restore_pending = true
+  vim.schedule(function()
+    focus_restore_pending = false
+
+    if not winid or not vim.api.nvim_win_is_valid(winid) then
+      return
+    end
+
+    if vim.api.nvim_get_current_win() ~= winid then
+      return
+    end
+
+    focus_terminal()
+  end)
 end
 
 ---Hides the terminal window if it's currently open.
@@ -421,10 +457,12 @@ function M.open(cmd_string, env_table, effective_config, focus)
     on_stdout = function()
       -- Notify about terminal activity on standard output
       vim.schedule(notify_activity)
+      restore_terminal_input_if_active()
     end,
     on_stderr = function()
       -- Notify about terminal activity on standard error
       vim.schedule(notify_activity)
+      restore_terminal_input_if_active()
     end,
     on_exit = function(job_id, _, _)
       -- Handle terminal process termination
