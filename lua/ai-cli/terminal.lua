@@ -313,12 +313,32 @@ local function preserve_terminal_window()
   end
 end
 
----Moves focus to the terminal window and enters insert mode.
+---Moves focus to the terminal window and aggressively restores terminal input mode.
+---Some CLIs are sensitive to the exact timing of `startinsert`, so we retry on the
+---next loop tick after moving focus into the terminal window.
 local function focus_terminal()
-  if is_valid() then
+  if not is_valid() then
+    return
+  end
+
+  vim.api.nvim_set_current_win(winid)
+
+  local function enter_terminal_mode()
+    if not winid or not vim.api.nvim_win_is_valid(winid) then
+      return
+    end
+
+    local buf = vim.api.nvim_win_get_buf(winid)
+    if not buf or not vim.api.nvim_buf_is_valid(buf) or vim.bo[buf].buftype ~= "terminal" then
+      return
+    end
+
     vim.api.nvim_set_current_win(winid)
     vim.cmd("startinsert")
   end
+
+  enter_terminal_mode()
+  vim.schedule(enter_terminal_mode)
 end
 
 ---Hides the terminal window if it's currently open.

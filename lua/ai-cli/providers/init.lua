@@ -1,6 +1,6 @@
 ---@module 'ai-cli.providers'
 --- Lightweight provider registry.
---- For now only Gemini exists, but this indirection lets the core editor UX
+--- Gemini and Claude are supported initially, and this indirection lets the core editor UX
 --- stay stable while future providers are added on separate modules.
 
 local M = {}

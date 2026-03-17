@@ -46,6 +46,22 @@ local function test_config_and_provider()
     "/tmp/gemini-defaults.json",
     "Provider should set defaults path env"
   )
+
+  local claude = providers.get("claude")
+  helpers.assert_eq(claude.name, "claude", "Claude provider should be resolved from registry")
+  helpers.assert_eq(
+    claude.build_command({ terminal_cmd = "my-claude" }),
+    "my-claude",
+    "Claude provider should respect terminal_cmd"
+  )
+
+  local claude_env = claude.extend_env({ EXISTING = "1" }, {
+    bridge_port = 7777,
+    pid = 1234,
+    defaults_path = "/tmp/ignored.json",
+  })
+  helpers.assert_eq(claude_env.EXISTING, "1", "Claude provider should preserve existing env")
+  helpers.assert_eq(claude_env.GEMINI_CLI_IDE_SERVER_PORT, nil, "Claude provider should not inject Gemini env vars")
 end
 
 local function test_editor_accept_flow()

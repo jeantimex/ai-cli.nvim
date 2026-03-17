@@ -199,6 +199,34 @@ Example key bindings:
 }
 ```
 
+## Claude Code Setup
+
+Claude is available as a provider too:
+
+```lua
+require("ai-cli").setup({
+  provider = "claude",
+  terminal_cmd = "claude",
+})
+```
+
+Minimal Claude `lazy.nvim` setup for developers:
+
+```lua
+{
+  "jeantimex/ai-cli.nvim",
+  event = "VeryLazy",
+  config = function()
+    require("ai-cli").setup({
+      provider = "claude",
+      terminal_cmd = "claude",
+    })
+  end,
+}
+```
+
+This first Claude pass is terminal-first. The shared terminal pane works with Claude today, but automatic Claude-specific MCP bridge wiring is not implemented yet.
+
 ## Workflow Notes
 
 - The terminal pane is pinned to its own split and should stay separate from normal code windows.
