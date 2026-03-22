@@ -16,6 +16,7 @@ local M = {}
 ---@field defaults_error string|nil
 ---@field bridge_url string|nil
 ---@field instructions_path string|nil
+---@field mcp_config_path string|nil
 
 local function default_prepare_launch(provider, config, ctx)
   local defaults_path, defaults_error = nil, nil
@@ -39,6 +40,7 @@ local function default_prepare_launch(provider, config, ctx)
     defaults_error = defaults_error,
     bridge_url = nil,
     instructions_path = nil,
+    mcp_config_path = nil,
   }
 end
 

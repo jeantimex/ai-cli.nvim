@@ -269,6 +269,30 @@ function M._create_commands()
         desc = "Manually refresh the current buffer from disk.",
       },
     },
+    AiCliBridgeEvents = {
+      fn = function()
+        local events = server.get_recent_events()
+        if #events == 0 then
+          logger.info("command", "No bridge events recorded yet.")
+          return
+        end
+
+        local lines = {}
+        for _, event in ipairs(events) do
+          table.insert(lines, string.format("[%s] %s %s", event.at, event.kind, vim.json.encode(event.payload)))
+        end
+        vim.cmd("new")
+        local buf = vim.api.nvim_get_current_buf()
+        vim.bo[buf].buftype = "nofile"
+        vim.bo[buf].bufhidden = "wipe"
+        vim.bo[buf].swapfile = false
+        vim.bo[buf].filetype = "json"
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      end,
+      opts = {
+        desc = "Show recent MCP bridge events.",
+      },
+    },
   }
 
   for name, cmd in pairs(commands) do
