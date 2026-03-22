@@ -90,6 +90,52 @@ local function test_config_and_provider()
     argv_joined:match('model_instructions_file="'),
     "Codex argv should pass the Codex model instructions file"
   )
+
+  local claude = providers.get("claude")
+  helpers.assert_eq(claude.name, "claude", "Claude provider should be resolved from registry")
+  helpers.assert_eq(claude.build_command({ terminal_cmd = "my-claude" }), "my-claude", "Claude should respect terminal_cmd")
+
+  local claude_prepared = claude.prepare_launch({
+    env = { EXISTING = "1" },
+  }, {
+    bridge_port = 9234,
+    auth_token = "claude-token",
+    pid = 5678,
+  })
+  helpers.assert_eq(claude_prepared.env.EXISTING, "1", "Claude env merge should preserve existing keys")
+  helpers.assert_eq(
+    claude_prepared.env.AI_CLI_MCP_SERVER_URL,
+    "http://127.0.0.1:9234/mcp",
+    "Claude provider should expose the local MCP server URL"
+  )
+  helpers.assert_eq(
+    claude_prepared.env.AI_CLI_MCP_AUTH_TOKEN,
+    "claude-token",
+    "Claude provider should expose the MCP auth token"
+  )
+  assert(
+    type(claude_prepared.instructions_path) == "string" and claude_prepared.instructions_path ~= "",
+    "Claude provider should create a system prompt file"
+  )
+  assert(
+    type(claude_prepared.mcp_config_path) == "string" and claude_prepared.mcp_config_path ~= "",
+    "Claude provider should create an MCP config file"
+  )
+
+  local claude_argv = claude.build_argv({ terminal_cmd = "my-claude" }, claude_prepared)
+  helpers.assert_eq(claude_argv[1], "my-claude", "Claude argv should start with the configured command")
+  local claude_joined = table.concat(claude_argv, "\n")
+  assert(claude_joined:match("%-%-strict%-mcp%-config"), "Claude argv should use strict MCP config")
+  assert(claude_joined:match("%-%-mcp%-config"), "Claude argv should pass an MCP config file")
+  assert(claude_joined:match("%-%-append%-system%-prompt"), "Claude argv should append a system prompt")
+  assert(
+    claude_joined:match("%-%-disallowedTools"),
+    "Claude argv should disallow built-in edit tools so MCP diff review is used"
+  )
+  assert(
+    claude_joined:match("Edit,MultiEdit,Write,NotebookEdit"),
+    "Claude argv should disable the built-in Claude edit tools"
+  )
 end
 
 local function test_editor_accept_flow()
@@ -166,6 +212,27 @@ local function test_pending_diff_opens_when_file_is_visited()
   )
 end
 
+local function test_get_diff_status_is_non_destructive()
+  with_clean_buffer()
+  local target = helpers.make_temp_file("before\n")
+
+  vim.cmd("edit " .. vim.fn.fnameescape(target))
+  local result = diff.open_diff({
+    filePath = target,
+    newContent = "after\n",
+  })
+
+  helpers.assert_eq(result.status, "opened", "Visible file should open review immediately")
+
+  local status = diff.get_diff_status(target)
+  helpers.assert_eq(status.status, "opened", "Status check should report an open review")
+  helpers.assert_eq(status.finalContent, "after\n", "Status check should preserve proposed content")
+  helpers.assert_eq(vim.bo.filetype, "diff", "Status check should not close the review buffer")
+
+  local closed = diff.close_diff(target)
+  helpers.assert_eq(closed.status, "closed", "Explicit close should still close the review")
+end
+
 local function test_pending_external_resolution()
   with_clean_buffer()
   local unrelated = helpers.make_temp_file("unrelated\n")
@@ -211,6 +278,7 @@ end
 test_config_and_provider()
 test_editor_accept_flow()
 test_pending_diff_opens_when_file_is_visited()
+test_get_diff_status_is_non_destructive()
 test_pending_external_resolution()
 test_active_external_resolution()
 

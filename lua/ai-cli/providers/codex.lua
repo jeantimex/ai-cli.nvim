@@ -26,7 +26,7 @@ local function write_model_instructions()
     "- Do not modify files directly when the `openDiff` tool is available.",
     "- Read the target file first, then call `openDiff` with the absolute `filePath` and the complete proposed `newContent`.",
     "- After proposing a change, wait for the user to review it in Neovim.",
-    "- Use `closeDiff` to check whether the diff was accepted, rejected, closed, or is still pending.",
+    "- Use `getDiffStatus` to check whether the diff was accepted, rejected, closed, opened, or is still pending.",
     "- If the diff was accepted, continue from the accepted file contents.",
     "- If the diff was rejected or closed, do not assume the change was applied.",
     "",

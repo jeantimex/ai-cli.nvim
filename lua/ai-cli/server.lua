@@ -26,6 +26,19 @@ local sse_clients = {}
 
 -- Current version of the Model Context Protocol supported by this server.
 local MCP_PROTOCOL_VERSION = "2024-11-05"
+local recent_events = {}
+
+local function remember_event(kind, payload)
+  table.insert(recent_events, {
+    at = os.date("%H:%M:%S"),
+    kind = kind,
+    payload = payload,
+  })
+
+  if #recent_events > 30 then
+    table.remove(recent_events, 1)
+  end
+end
 
 ---Generates a cryptographically-insecure but sufficient random token for local auth.
 ---Uses high-resolution time and a random number to minimize collisions.
@@ -238,9 +251,9 @@ end
 ---@return table normalized Normalized arguments
 local function normalize_open_diff_args(args)
   return {
-    old_file_path = args.filePath or args.old_file_path or args.path,
-    new_file_contents = args.newContent or args.new_file_contents or args.newText or "",
-    tab_name = args.tabName or args.tab_name or args.filePath or args.path,
+    old_file_path = args.filePath or args.file_path or args.old_file_path or args.path,
+    new_file_contents = args.newContent or args.new_content or args.new_file_contents or args.newText or args.content or "",
+    tab_name = args.tabName or args.tab_name or args.filePath or args.file_path or args.path,
   }
 end
 
@@ -253,7 +266,7 @@ local function list_tools()
     tools = {
       {
         name = "openDiff",
-        description = "Open a diff preview for a file in Neovim.",
+        description = "Open or update a diff preview for a file in Neovim.",
         inputSchema = {
           type = "object",
           properties = {
@@ -274,6 +287,17 @@ local function list_tools()
           required = { "filePath" },
         },
       },
+      {
+        name = "getDiffStatus",
+        description = "Get the current status of a diff preview without closing it.",
+        inputSchema = {
+          type = "object",
+          properties = {
+            filePath = { type = "string", description = "Absolute path to the file being edited." },
+          },
+          required = { "filePath" },
+        },
+      },
     },
   }
 end
@@ -285,14 +309,26 @@ local function handle_tool_call(request)
   local params = request.params or {}
   local name = params.name
   local arguments = params.arguments or {}
+  remember_event("tools/call", {
+    name = name,
+    arguments = arguments,
+  })
 
-  if name == "openDiff" then
+  if name == "openDiff" or name == "open_diff" then
     local normalized = normalize_open_diff_args(arguments)
     local ok, result = pcall(diff.open_diff, normalized)
     if not ok then
+      remember_event("tools/call_error", {
+        name = name,
+        error = result,
+      })
       return jsonrpc_error(request.id, -32000, result)
     end
 
+    remember_event("tools/call_result", {
+      name = name,
+      result = result,
+    })
     return jsonrpc_result(request.id, {
       content = {
         {
@@ -304,14 +340,22 @@ local function handle_tool_call(request)
     })
   end
 
-  if name == "closeDiff" then
-    local ok, result = pcall(diff.close_diff, arguments.filePath or arguments.path)
+  if name == "closeDiff" or name == "close_diff" then
+    local ok, result = pcall(diff.close_diff, arguments.filePath or arguments.file_path or arguments.path)
     if not ok then
+      remember_event("tools/call_error", {
+        name = name,
+        error = result,
+      })
       return jsonrpc_error(request.id, -32000, result)
     end
 
     local content = result and result.finalContent or nil
 
+    remember_event("tools/call_result", {
+      name = name,
+      result = result,
+    })
     return jsonrpc_result(request.id, {
       content = {
         {
@@ -319,6 +363,31 @@ local function handle_tool_call(request)
           text = vim.json.encode({
             content = content,
           }),
+        },
+      },
+      structuredContent = result or {},
+    })
+  end
+
+  if name == "getDiffStatus" or name == "get_diff_status" then
+    local ok, result = pcall(diff.get_diff_status, arguments.filePath or arguments.file_path or arguments.path)
+    if not ok then
+      remember_event("tools/call_error", {
+        name = name,
+        error = result,
+      })
+      return jsonrpc_error(request.id, -32000, result)
+    end
+
+    remember_event("tools/call_result", {
+      name = name,
+      result = result,
+    })
+    return jsonrpc_result(request.id, {
+      content = {
+        {
+          type = "text",
+          text = vim.json.encode(result or {}),
         },
       },
       structuredContent = result or {},
@@ -502,6 +571,10 @@ function M.notify(method, params)
       table.remove(sse_clients, index)
     end
   end
+end
+
+function M.get_recent_events()
+  return vim.deepcopy(recent_events)
 end
 
 ---Stops the bridge server and cleans up resources.

@@ -55,6 +55,7 @@ Provider-specific setup lives behind provider modules:
 
 ```text
 lua/ai-cli/providers/
+  claude.lua
   init.lua
   codex.lua
   gemini.lua
@@ -101,10 +102,11 @@ The current command surface is shared plugin behavior:
 - `:AiCliNarrower` decreases the split width
 - `:AiCliAdd` prints the `/add` helper for the current file
 - `:AiCliRefresh` manually reloads the current buffer from disk
+- `:AiCliBridgeEvents` shows recent MCP bridge tool calls and results
 
 ## Minimum Setup
 
-Smallest working setup for the bundled Gemini provider:
+Minimal Gemini setup:
 
 ```lua
 {
@@ -119,7 +121,7 @@ Smallest working setup for the bundled Gemini provider:
 }
 ```
 
-Smallest working setup for the bundled Codex provider:
+Minimal Codex setup:
 
 ```lua
 {
@@ -129,6 +131,21 @@ Smallest working setup for the bundled Codex provider:
     require("ai-cli").setup({
       provider = "codex",
       terminal_cmd = "codex",
+    })
+  end,
+}
+```
+
+Minimal Claude setup:
+
+```lua
+{
+  "jeantimex/ai-cli.nvim",
+  event = "VeryLazy",
+  config = function()
+    require("ai-cli").setup({
+      provider = "claude",
+      terminal_cmd = "claude",
     })
   end,
 }
@@ -173,21 +190,6 @@ The Gemini provider injects these extra environment variables:
 
 It also writes a temporary Gemini system-defaults file so Gemini can discover the Neovim bridge in IDE mode.
 
-Minimal Gemini `lazy.nvim` setup for developers:
-
-```lua
-{
-  "jeantimex/ai-cli.nvim",
-  event = "VeryLazy",
-  config = function()
-    require("ai-cli").setup({
-      provider = "gemini",
-      terminal_cmd = "gemini",
-    })
-  end,
-}
-```
-
 ## Codex CLI Setup
 
 The plugin now includes an experimental Codex provider.
@@ -222,23 +224,60 @@ The Codex provider currently does three things at launch time:
 - injects `AI_CLI_MCP_AUTH_TOKEN`
 - passes per-session Codex config overrides so the local Neovim MCP bridge is available without modifying your global Codex config
 
-It also writes a temporary `model_instructions_file` that tells Codex to route code changes through `openDiff` / `closeDiff` when those tools are available.
+It also writes a temporary `model_instructions_file` that tells Codex to route code changes through `openDiff` / `getDiffStatus` when those tools are available.
 
 Current caveat:
 - Codex support depends on Codex actually following those instructions. The plugin can expose the diff tools, but it cannot force Codex to use them if the model decides to edit files directly.
 
-## Codex Verification
+## Claude Code Setup
 
-Use this sequence for the first live test:
+The plugin now includes an experimental Claude Code provider.
+
+Before using the Claude provider, install Claude Code first.
+
+Use this when you want to configure Claude explicitly:
+
+```lua
+require("ai-cli").setup({
+  provider = "claude",
+  terminal_cmd = "claude",
+  env = {},
+  terminal = {
+    split_side = "right",
+    split_width_percentage = 0.4,
+    auto_close = true,
+  },
+  diff = {
+    accept_key = "ga",
+    reject_key = "gr",
+  },
+})
+```
+
+The Claude provider currently does three things at launch time:
+- injects `AI_CLI_MCP_SERVER_URL`
+- injects `AI_CLI_MCP_AUTH_TOKEN`
+- writes a temporary MCP JSON config and passes it with `--mcp-config --strict-mcp-config`
+
+It also:
+- appends a provider-specific system prompt telling Claude Code to route code changes through `openDiff` / `getDiffStatus`
+- disables Claude Code's built-in file mutation tools (`Edit`, `MultiEdit`, `Write`, `NotebookEdit`) so the MCP diff flow is preferred
+
+Current caveat:
+- Claude support depends on Claude Code actually following that prompt and using the MCP tools instead of editing files directly.
+
+## Verification
+
+Use this sequence for the first live test with Codex or Claude:
 
 1. Open a small file in Neovim that you can safely modify.
 2. Start the terminal with `:AiCliOpen`.
-3. In the terminal pane, ask Codex to make a small edit to the file that is already open.
+3. In the terminal pane, ask the active CLI to make a small edit to the file that is already open.
 4. Watch for a diff review buffer to appear in Neovim instead of the file being edited directly on disk.
 5. Press `ga` to accept or `gr` to reject.
-6. If the diff does not appear and the file changes directly, Codex bypassed the MCP review flow.
+6. If the diff does not appear and the file changes directly, the provider bypassed the MCP review flow.
 
-Recommended first prompt for Codex:
+Recommended first prompt:
 
 ```text
 Please make a tiny change to the currently open file by using the diff review tools instead of editing the file directly.
@@ -251,9 +290,13 @@ What success looks like:
 - rejecting the diff leaves the file unchanged
 
 What failure looks like:
-- Codex edits the file directly with no diff buffer
-- Codex says it changed the file, but Neovim never opens a review
-- Codex cannot see the MCP tools
+- the CLI edits the file directly with no diff buffer
+- the CLI says it changed the file, but Neovim never opens a review
+- the CLI cannot see the MCP tools
+
+Troubleshooting:
+- If Claude says the MCP server failed, fully restart the terminal with `:AiCliClose` and `:AiCliOpen`.
+- If Claude still does not open a diff, run `:AiCliBridgeEvents` to inspect the recent MCP calls Claude sent to Neovim.
 
 Example key bindings:
 
@@ -301,6 +344,7 @@ Provider-agnostic pieces:
 - `lua/ai-cli/init.lua` wires the active provider into the shared UI and sync flow
 
 Provider-specific pieces:
+- `lua/ai-cli/providers/claude.lua` defines Claude Code-specific command and launch behavior
 - `lua/ai-cli/providers/init.lua` resolves the active provider
 - `lua/ai-cli/providers/codex.lua` defines Codex-specific command and launch behavior
 - `lua/ai-cli/providers/gemini.lua` defines Gemini-specific command and environment behavior

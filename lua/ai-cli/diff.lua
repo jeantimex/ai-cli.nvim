@@ -671,6 +671,52 @@ function M.close_diff(file_path)
   return result
 end
 
+function M.get_diff_status(file_path)
+  local key = normalize_path(file_path)
+  if not key then
+    return {
+      filePath = nil,
+      status = "not_found",
+      error = "No file path provided",
+    }
+  end
+
+  local state = active_diffs[key]
+  if state then
+    return {
+      filePath = key,
+      acceptedInEditor = state.accepted == true,
+      status = "opened",
+      finalContent = state.new_content,
+    }
+  end
+
+  local pending = pending_diffs[key]
+  if pending then
+    return {
+      filePath = key,
+      status = "pending",
+      finalContent = pending.new_content,
+    }
+  end
+
+  local resolved = resolved_diffs[key]
+  if resolved then
+    return {
+      filePath = resolved.filePath,
+      acceptedInEditor = resolved.acceptedInEditor == true,
+      status = resolved.status,
+      finalContent = resolved.finalContent,
+    }
+  end
+
+  return {
+    filePath = key,
+    status = "not_found",
+    error = "No active diff for " .. key,
+  }
+end
+
 function M.sync_external_resolution()
   if vim.in_fast_event() then
     schedule_ui(M.sync_external_resolution)
