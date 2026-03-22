@@ -1,7 +1,7 @@
 ---@module 'ai-cli'
---- Main entry point for the gemini-cli.nvim plugin.
+--- Main entry point for ai-cli.nvim.
 --- This module handles initialization, terminal management, and the bridge server
---- that allows gemini-cli to interact with Neovim for code edits.
+--- that allows supported coding CLIs to interact with Neovim for code edits.
 local M = {}
 
 local logger = require("ai-cli.logger")
@@ -53,6 +53,7 @@ M.state = {
   config = config_module.defaults,
   initialized = false,
   provider = nil,
+  prepared_launch = nil,
 }
 
 ---Initialize the plugin with user-provided configuration.
@@ -68,28 +69,29 @@ function M.setup(user_config)
   terminal.set_activity_handler(refresh_open_file_buffers)
   diff.setup(M.state.config)
 
-  -- Start the RPC bridge server. This allows the gemini-cli process (running in the terminal)
+  -- Start the RPC bridge server. This allows the active CLI process (running in the terminal)
   -- to send commands back to Neovim (e.g., to apply code diffs or open files).
   -- The transport itself is generic enough to survive a later multi-provider refactor;
   -- the provider-specific part is mostly the env/setup contract around it.
-  local ok, bridge_port = server.start()
+  local ok, bridge_port, auth_token = server.start()
   if ok and bridge_port then
     -- Route bridge server events (like code edits) to the diff module for UI handling
     diff.set_event_handler(server.notify)
   else
-    logger.warn("init", "Gemini IDE bridge failed to start:", bridge_port)
+    logger.warn("init", "IDE bridge failed to start:", bridge_port)
   end
 
-  -- Provider-specific IDE defaults live behind the provider adapter so this
-  -- setup flow can stay stable if other CLIs are introduced later.
-  defaults_path = defaults_path or M.state.provider.write_system_defaults()
-  M.state.config.env = M.state.provider.extend_env(M.state.config.env, {
+  -- Provider-specific launch preparation lives behind the provider adapter so
+  -- this setup flow can stay stable as more CLIs are introduced later.
+  M.state.prepared_launch = M.state.provider.prepare_launch(M.state.config, {
     bridge_port = ok and bridge_port or nil,
-    defaults_path = defaults_path,
+    auth_token = auth_token,
     pid = vim.fn.getpid(),
   })
-  if not defaults_path then
-    logger.warn("init", "Gemini IDE defaults file could not be created.")
+  defaults_path = M.state.prepared_launch.defaults_path
+  M.state.config.env = M.state.prepared_launch.env or vim.deepcopy(M.state.config.env)
+  if M.state.prepared_launch.defaults_error then
+    logger.warn("init", "Provider IDE defaults file could not be created.")
   end
 
   -- Set standard environment variables for Neovim integration.
@@ -97,20 +99,20 @@ function M.setup(user_config)
   M.state.config.env.NVIM = vim.v.servername
   M.state.config.env.EDITOR = "nvim"
 
-  -- Enable auto-reloading of files. When gemini-cli modifies a file on disk,
+  -- Enable auto-reloading of files. When the active CLI modifies a file on disk,
   -- Neovim will detect it and reload the buffer automatically if it's not modified.
   vim.o.autoread = true
   vim.api.nvim_create_autocmd(
     { "BufEnter", "BufWinEnter", "BufReadPost", "CursorHold", "CursorHoldI", "FocusGained" },
     {
-      group = vim.api.nvim_create_augroup("GeminiAutoread", { clear = true }),
+      group = vim.api.nvim_create_augroup("AiCliAutoread", { clear = true }),
       callback = function(args)
         -- Only trigger checktime if not in command-line mode to avoid interrupting the user's typing
         if vim.fn.mode() ~= "c" then
           refresh_open_file_buffers()
         end
 
-        -- If we're entering a buffer that has a pending diff from Gemini (stored in memory),
+        -- If we're entering a buffer that has a pending diff (stored in memory),
         -- offer to show the diff UI.
         if args.event == "BufEnter" or args.event == "BufWinEnter" or args.event == "BufReadPost" then
           diff.maybe_open_pending_for_buffer(args.buf)
@@ -120,45 +122,45 @@ function M.setup(user_config)
     }
   )
 
-  -- Register :Gemini* commands
+  -- Register user-facing commands
   M._create_commands()
   M.state.initialized = true
 
-  logger.debug("init", "Gemini CLI initialized")
+  logger.debug("init", "AI CLI initialized")
 end
 
----Opens the Gemini terminal window.
+---Opens the AI CLI terminal window.
 ---Initializes the plugin if it hasn't been set up yet.
----@param args string|nil Raw string arguments to pass to the gemini-cli command
+---@param args string|nil Raw string arguments to pass to the active CLI command
 function M.open(args)
   if not M.state.initialized then
     M.setup()
   end
 
-  local cmd = M.state.provider.build_command(M.state.config)
+  local argv = M.state.provider.build_argv(M.state.config, M.state.prepared_launch)
   if args and args ~= "" then
-    cmd = cmd .. " " .. args
+    table.insert(argv, args)
   end
 
-  terminal.open(cmd, M.state.config.env, M.state.config.terminal, true)
+  terminal.open(argv, M.state.config.env, M.state.config.terminal, true)
 end
 
----Toggles the Gemini terminal window visibility.
----@param args string|nil Raw string arguments for gemini-cli
+---Toggles the AI CLI terminal window visibility.
+---@param args string|nil Raw string arguments for the active CLI
 function M.toggle(args)
   if not M.state.initialized then
     M.setup()
   end
 
-  local cmd = M.state.provider.build_command(M.state.config)
+  local argv = M.state.provider.build_argv(M.state.config, M.state.prepared_launch)
   if args and args ~= "" then
-    cmd = cmd .. " " .. args
+    table.insert(argv, args)
   end
 
-  terminal.toggle(cmd, M.state.config.env, M.state.config.terminal)
+  terminal.toggle(argv, M.state.config.env, M.state.config.terminal)
 end
 
----Closes the Gemini terminal window.
+---Closes the AI CLI terminal window.
 function M.close()
   terminal.close()
 end

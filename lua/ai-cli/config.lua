@@ -1,30 +1,30 @@
----@brief Manages configuration for the Gemini CLI Neovim integration.
+---@brief Manages configuration for ai-cli.nvim.
 --- This module handles the default settings, validation of user overrides,
 --- and merging user configuration into the active state.
 ---@module 'ai-cli.config'
 
 local M = {}
 
----@class GeminiConfig
+---@class AiCliConfig
 ---@field provider string Provider adapter name. Defaults to "gemini".
 ---@field auto_start boolean Whether to automatically start the bridge server (currently unused in init)
----@field terminal_cmd string The shell command used to launch the Gemini CLI
----@field env table Environment variables to inject into the Gemini terminal process
+---@field terminal_cmd string The shell command used to launch the active CLI
+---@field env table Environment variables to inject into the terminal process
 ---@field log_level "trace"|"debug"|"info"|"warn"|"error" Minimum level for logging
----@field terminal GeminiTerminalConfig Terminal window settings
----@field diff GeminiDiffConfig Diff review settings
+---@field terminal AiCliTerminalConfig Terminal window settings
+---@field diff AiCliDiffConfig Diff review settings
 
----@class GeminiTerminalConfig
+---@class AiCliTerminalConfig
 ---@field split_side "left"|"right" Which side of the screen to open the terminal on
 ---@field split_width_percentage number Width of the terminal split (0.0 to 1.0)
 ---@field auto_close boolean Whether to close the terminal window when the process exits
 
----@class GeminiDiffConfig
+---@class AiCliDiffConfig
 ---@field accept_key string Keybinding to apply changes in diff view
 ---@field reject_key string Keybinding to reject changes in diff view
 
 --- Default configuration values
----@type GeminiConfig
+---@type AiCliConfig
 M.defaults = {
   provider = "gemini",
   auto_start = true,

@@ -56,6 +56,7 @@ Provider-specific setup lives behind provider modules:
 ```text
 lua/ai-cli/providers/
   init.lua
+  codex.lua
   gemini.lua
 ```
 
@@ -118,6 +119,21 @@ Smallest working setup for the bundled Gemini provider:
 }
 ```
 
+Smallest working setup for the bundled Codex provider:
+
+```lua
+{
+  "jeantimex/ai-cli.nvim",
+  event = "VeryLazy",
+  config = function()
+    require("ai-cli").setup({
+      provider = "codex",
+      terminal_cmd = "codex",
+    })
+  end,
+}
+```
+
 ## Gemini CLI Setup
 
 The bundled provider today is Gemini.
@@ -172,6 +188,73 @@ Minimal Gemini `lazy.nvim` setup for developers:
 }
 ```
 
+## Codex CLI Setup
+
+The plugin now includes an experimental Codex provider.
+
+Before using the Codex provider, install Codex first:
+
+```sh
+npm install -g @openai/codex
+```
+
+Use this when you want to configure Codex explicitly:
+
+```lua
+require("ai-cli").setup({
+  provider = "codex",
+  terminal_cmd = "codex",
+  env = {},
+  terminal = {
+    split_side = "right",
+    split_width_percentage = 0.4,
+    auto_close = true,
+  },
+  diff = {
+    accept_key = "ga",
+    reject_key = "gr",
+  },
+})
+```
+
+The Codex provider currently does three things at launch time:
+- injects `AI_CLI_MCP_SERVER_URL`
+- injects `AI_CLI_MCP_AUTH_TOKEN`
+- passes per-session Codex config overrides so the local Neovim MCP bridge is available without modifying your global Codex config
+
+It also writes a temporary `model_instructions_file` that tells Codex to route code changes through `openDiff` / `closeDiff` when those tools are available.
+
+Current caveat:
+- Codex support depends on Codex actually following those instructions. The plugin can expose the diff tools, but it cannot force Codex to use them if the model decides to edit files directly.
+
+## Codex Verification
+
+Use this sequence for the first live test:
+
+1. Open a small file in Neovim that you can safely modify.
+2. Start the terminal with `:AiCliOpen`.
+3. In the terminal pane, ask Codex to make a small edit to the file that is already open.
+4. Watch for a diff review buffer to appear in Neovim instead of the file being edited directly on disk.
+5. Press `ga` to accept or `gr` to reject.
+6. If the diff does not appear and the file changes directly, Codex bypassed the MCP review flow.
+
+Recommended first prompt for Codex:
+
+```text
+Please make a tiny change to the currently open file by using the diff review tools instead of editing the file directly.
+```
+
+What success looks like:
+- the target file opens in a unified diff buffer
+- the terminal stays open
+- accepting the diff writes the file and restores the original buffer
+- rejecting the diff leaves the file unchanged
+
+What failure looks like:
+- Codex edits the file directly with no diff buffer
+- Codex says it changed the file, but Neovim never opens a review
+- Codex cannot see the MCP tools
+
 Example key bindings:
 
 ```lua
@@ -219,12 +302,15 @@ Provider-agnostic pieces:
 
 Provider-specific pieces:
 - `lua/ai-cli/providers/init.lua` resolves the active provider
+- `lua/ai-cli/providers/codex.lua` defines Codex-specific command and launch behavior
 - `lua/ai-cli/providers/gemini.lua` defines Gemini-specific command and environment behavior
 
 Each provider module should own:
 - how to build the CLI command
+- how to build provider-specific argv/config overrides
 - which environment variables to inject
 - any provider-specific defaults files
+- any provider-specific instruction files
 - request/response normalization for tool calls
 
 To add a new CLI later, the intended path is:

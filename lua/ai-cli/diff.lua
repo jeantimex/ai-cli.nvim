@@ -1,5 +1,5 @@
 ---@module 'ai-cli.diff'
---- Manages the lifecycle of code diffs proposed by Gemini.
+--- Manages the lifecycle of code diffs proposed by the active provider.
 --- This includes rendering unified diffs in a temporary buffer,
 --- handling user acceptance/rejection, and auto-applying changes to disk.
 local M = {}
@@ -16,7 +16,7 @@ local active_diffs = {}
 local pending_diffs = {}
 local pending_open_paths = {}
 
--- Stores the final outcome of diffs (accepted/rejected) to report back to Gemini.
+-- Stores the final outcome of diffs (accepted/rejected) to report back to the CLI.
 local resolved_diffs = {}
 
 -- Callback used to send notifications (SSE) back to the bridge server.
@@ -229,7 +229,7 @@ end
 ---Creates a scratch buffer to hold the diff text.
 local function make_review_buffer(path, diff_lines)
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(buf, "Gemini Diff: " .. path)
+  vim.api.nvim_buf_set_name(buf, "AI CLI Diff: " .. path)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, diff_lines)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
@@ -326,7 +326,7 @@ local function remember_result(file_path, result)
   resolved_diffs[key] = result
 end
 
----Sends an asynchronous event back to the Gemini bridge server.
+---Sends an asynchronous event back to the bridge server.
 local function emit_event(method, params)
   if not event_handler then
     return
@@ -334,7 +334,7 @@ local function emit_event(method, params)
 
   local ok, err = pcall(event_handler, method, params)
   if not ok then
-    logger.warn("diff", "Failed to notify Gemini bridge:", err)
+    logger.warn("diff", "Failed to notify bridge:", err)
   end
 end
 
@@ -438,15 +438,15 @@ local function set_keymaps(buf, state)
     if not ok then
       logger.error("diff", "Failed to apply changes:", err or "unknown error")
     end
-  end, vim.tbl_extend("force", opts, { desc = "Apply Gemini changes" }))
+  end, vim.tbl_extend("force", opts, { desc = "Apply AI CLI changes" }))
 
   vim.keymap.set("n", state.reject_key, function()
     finalize_in_editor(state.old_file, false)
-  end, vim.tbl_extend("force", opts, { desc = "Reject Gemini changes" }))
+  end, vim.tbl_extend("force", opts, { desc = "Reject AI CLI changes" }))
 
   vim.keymap.set("n", "q", function()
     finalize_in_editor(state.old_file, false)
-  end, vim.tbl_extend("force", opts, { desc = "Close Gemini diff" }))
+  end, vim.tbl_extend("force", opts, { desc = "Close AI CLI diff" }))
 end
 
 function M.setup(config)
@@ -470,8 +470,8 @@ local function open_review(state, review_win)
 
   state.accepted = false
   state.final_content = nil
-  state.group = vim.api.nvim_create_augroup("GeminiCliDiff" .. unique_id, { clear = true })
-  state.help_ns = vim.api.nvim_create_namespace("GeminiCliDiffHelp" .. unique_id)
+  state.group = vim.api.nvim_create_augroup("AiCliDiff" .. unique_id, { clear = true })
+  state.help_ns = vim.api.nvim_create_namespace("AiCliDiffHelp" .. unique_id)
   state.original_buf = original_buf
   state.original_content = original_content
   state.original_cursor = original_cursor
@@ -501,7 +501,7 @@ local function open_review(state, review_win)
         local stashed = active_diffs[state.old_file]
         active_diffs[state.old_file] = nil
         stash_pending_state(stashed)
-        logger.info("diff", "Deferred Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
+        logger.info("diff", "Deferred diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
       end
     end,
   })
@@ -512,7 +512,7 @@ local function open_review(state, review_win)
       vim.cmd("startinsert")
     end
   end
-  logger.info("diff", "Opened Gemini diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
+  logger.info("diff", "Opened diff for " .. vim.fn.fnamemodify(state.old_file, ":."))
 end
 
 local function schedule_pending_open(path)
@@ -578,7 +578,7 @@ function M.open_diff(params)
   local target_win = target_buf and find_window_for_buffer(target_buf) or nil
   if not target_win then
     pending_diffs[old_file] = state
-    logger.info("diff", "Queued Gemini diff for " .. vim.fn.fnamemodify(old_file, ":."))
+    logger.info("diff", "Queued diff for " .. vim.fn.fnamemodify(old_file, ":."))
     return {
       filePath = old_file,
       status = "pending",
@@ -691,7 +691,7 @@ function M.sync_external_resolution()
         finalContent = state.new_content,
         status = "accepted",
       })
-      logger.info("diff", "Resolved pending Gemini diff from disk for " .. vim.fn.fnamemodify(path, ":."))
+      logger.info("diff", "Resolved pending diff from disk for " .. vim.fn.fnamemodify(path, ":."))
     end
   end
 end
