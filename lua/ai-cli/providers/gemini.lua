@@ -7,10 +7,7 @@ local M = {
   name = "gemini",
 }
 
----Write Gemini's IDE-mode defaults file.
----@return string|nil path
----@return string|nil error
-function M.write_system_defaults()
+local function write_system_defaults()
   local path = vim.fs.joinpath(vim.uv.os_tmpdir(), "gemini-cli.nvim-system-defaults.json")
   local file = io.open(path, "w")
   if not file then
@@ -26,16 +23,7 @@ function M.write_system_defaults()
   return path
 end
 
----@param config table
----@return string
-function M.build_command(config)
-  return config.terminal_cmd or "gemini"
-end
-
----@param env table
----@param ctx table
----@return table
-function M.extend_env(env, ctx)
+local function extend_env(env, ctx)
   local merged = vim.deepcopy(env or {})
 
   if ctx.bridge_port then
@@ -49,6 +37,37 @@ function M.extend_env(env, ctx)
   end
 
   return merged
+end
+
+---@param config table
+---@return string
+function M.build_command(config)
+  return config.terminal_cmd or "gemini"
+end
+
+---@param config table
+---@return string[]
+function M.build_argv(config)
+  return { M.build_command(config) }
+end
+
+---@param config table
+---@param ctx AiCliProviderLaunchContext
+---@return AiCliPreparedLaunch
+function M.prepare_launch(config, ctx)
+  local defaults_path, defaults_error = write_system_defaults()
+  return {
+    env = extend_env((config or {}).env, {
+      bridge_port = ctx.bridge_port,
+      auth_token = ctx.auth_token,
+      defaults_path = defaults_path,
+      pid = ctx.pid,
+    }),
+    defaults_path = defaults_path,
+    defaults_error = defaults_error,
+    bridge_url = nil,
+    instructions_path = nil,
+  }
 end
 
 return M

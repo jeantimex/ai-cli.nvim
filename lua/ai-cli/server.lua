@@ -1,7 +1,7 @@
 ---@module 'ai-cli.server'
 --- Implements a Model Context Protocol (MCP) bridge server.
 --- This server runs inside Neovim and listens on a random local port.
---- It provides an HTTP interface for gemini-cli to call Neovim-specific tools
+--- It provides an HTTP interface for supported CLIs to call Neovim-specific tools
 --- like 'openDiff' and 'closeDiff', and uses SSE (Server-Sent Events) to
 --- notify the CLI about user actions in the editor.
 local M = {}
@@ -16,7 +16,7 @@ local server_handle = nil
 local port = nil
 
 -- A random token required in the 'Authorization: Bearer <token>' header for all requests.
--- This ensures that only the gemini-cli that started Neovim (or has access to the lockfile)
+-- This ensures that only the CLI instance that started Neovim (or has access to the credentials)
 -- can call these tools.
 local auth_token = nil
 
@@ -245,7 +245,7 @@ local function normalize_open_diff_args(args)
 end
 
 ---Returns the list of tools available via this MCP server.
----Today these tools are tailored to Gemini's editing workflow, but the bridge
+---Today these tools are tailored to the current diff review workflow, but the bridge
 ---can eventually expose the same shape to other CLI providers.
 ---@return table tools The tools list in MCP format
 local function list_tools()
@@ -485,7 +485,7 @@ function M.start()
   server_handle = tcp
   -- Write port/token to a lockfile so external tools can find us
   lockfile.create(port, auth_token)
-  logger.info("server", "Gemini MCP bridge started on port " .. port)
+  logger.info("server", "MCP bridge started on port " .. port)
   return true, port, auth_token
 end
 

@@ -1,4 +1,4 @@
----@brief Centralized logger for Gemini CLI Neovim integration.
+---@brief Centralized logger for ai-cli.nvim.
 ---@module 'ai-cli.logger'
 local M = {}
 
@@ -43,7 +43,7 @@ local function log(level, component, message_parts)
     return
   end
 
-  local prefix = "[GeminiCLI]"
+  local prefix = "[AiCli]"
   if component then
     prefix = prefix .. " [" .. component .. "]"
   end
@@ -74,9 +74,9 @@ local function log(level, component, message_parts)
   -- UI updates must be scheduled on the main thread
   vim.schedule(function()
     if level == M.levels.ERROR then
-      vim.notify(prefix .. " " .. message, vim.log.levels.ERROR, { title = "GeminiCLI Error" })
+      vim.notify(prefix .. " " .. message, vim.log.levels.ERROR, { title = "AiCli Error" })
     elseif level == M.levels.WARN then
-      vim.notify(prefix .. " " .. message, vim.log.levels.WARN, { title = "GeminiCLI Warning" })
+      vim.notify(prefix .. " " .. message, vim.log.levels.WARN, { title = "AiCli Warning" })
     else
       -- INFO/DEBUG/TRACE are echoed to minimize disruption
       vim.api.nvim_echo({ { prefix .. " " .. message, "Normal" } }, true, {})

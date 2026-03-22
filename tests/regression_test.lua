@@ -33,18 +33,62 @@ local function test_config_and_provider()
     "Provider should respect terminal_cmd"
   )
 
-  local env = provider.extend_env({ EXISTING = "1" }, {
+  local prepared = provider.prepare_launch({
+    env = { EXISTING = "1" },
+  }, {
     bridge_port = 7777,
+    auth_token = "secret",
     pid = 1234,
-    defaults_path = "/tmp/gemini-defaults.json",
   })
+  local env = prepared.env
   helpers.assert_eq(env.EXISTING, "1", "Provider env merge should preserve existing keys")
   helpers.assert_eq(env.GEMINI_CLI_IDE_SERVER_PORT, "7777", "Provider should set bridge port env")
   helpers.assert_eq(env.GEMINI_CLI_IDE_PID, "1234", "Provider should set pid env")
+  assert(type(prepared.defaults_path) == "string" and prepared.defaults_path ~= "", "Gemini defaults path should be set")
+  helpers.assert_eq(env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH, prepared.defaults_path, "Provider should set defaults path env")
+
+  local codex = providers.get("codex")
+  helpers.assert_eq(codex.name, "codex", "Codex provider should be resolved from registry")
+  helpers.assert_eq(codex.build_command({ terminal_cmd = "my-codex" }), "my-codex", "Codex should respect terminal_cmd")
+
+  local codex_prepared = codex.prepare_launch({
+    env = { EXISTING = "1" },
+  }, {
+    bridge_port = 8123,
+    auth_token = "codex-token",
+    pid = 4321,
+  })
+  helpers.assert_eq(codex_prepared.env.EXISTING, "1", "Codex env merge should preserve existing keys")
   helpers.assert_eq(
-    env.GEMINI_CLI_SYSTEM_DEFAULTS_PATH,
-    "/tmp/gemini-defaults.json",
-    "Provider should set defaults path env"
+    codex_prepared.env.AI_CLI_MCP_SERVER_URL,
+    "http://127.0.0.1:8123/mcp",
+    "Codex provider should expose the local MCP server URL"
+  )
+  helpers.assert_eq(
+    codex_prepared.env.AI_CLI_MCP_AUTH_TOKEN,
+    "codex-token",
+    "Codex provider should expose the MCP bearer token"
+  )
+  helpers.assert_eq(codex_prepared.defaults_path, nil, "Codex provider should not write provider defaults")
+  assert(
+    type(codex_prepared.instructions_path) == "string" and codex_prepared.instructions_path ~= "",
+    "Codex provider should create a model instructions file"
+  )
+
+  local codex_argv = codex.build_argv({ terminal_cmd = "my-codex" }, codex_prepared)
+  helpers.assert_eq(codex_argv[1], "my-codex", "Codex argv should start with the configured command")
+  local argv_joined = table.concat(codex_argv, "\n")
+  assert(argv_joined:match("hide_agent_reasonings=true"), "Codex argv should hide agent reasonings")
+  assert(argv_joined:match("show_raw_agent_reasoning=false"), "Codex argv should disable raw reasoning output")
+  assert(argv_joined:match('model_verbosity="low"'), "Codex argv should lower verbosity")
+  assert(argv_joined:match('mcp_servers%.ai_cli_nvim%.url="http://127%.0%.0%.1:8123/mcp"'), "Codex argv should register the MCP bridge URL")
+  assert(
+    argv_joined:match('mcp_servers%.ai_cli_nvim%.bearer_token_env_var="AI_CLI_MCP_AUTH_TOKEN"'),
+    "Codex argv should register the bearer token env var"
+  )
+  assert(
+    argv_joined:match('model_instructions_file="'),
+    "Codex argv should pass the Codex model instructions file"
   )
 end
 

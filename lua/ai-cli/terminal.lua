@@ -1,5 +1,5 @@
 ---@module 'ai-cli.terminal'
---- Manages the Gemini CLI terminal buffer and window.
+--- Manages the AI CLI terminal buffer and window.
 --- This module handles creating the terminal window, managing its visibility,
 --- and tracking the terminal process lifecycle.
 local M = {}
@@ -107,10 +107,10 @@ local function configure_terminal_buffer(target_buf)
     return
   end
 
-  pcall(vim.api.nvim_buf_set_name, target_buf, "gemini://cli")
+  pcall(vim.api.nvim_buf_set_name, target_buf, "ai-cli://terminal")
   vim.bo[target_buf].buflisted = false
   vim.bo[target_buf].bufhidden = "hide"
-  vim.bo[target_buf].filetype = "gemini-cli"
+  vim.bo[target_buf].filetype = "ai-cli-terminal"
   vim.bo[target_buf].swapfile = false
 end
 
@@ -366,12 +366,12 @@ local function show_hidden_terminal(effective_config, focus)
   return true
 end
 
----Opens the Gemini terminal. Creates a new process if none is running.
----@param cmd_string string The command to run (e.g., "gemini")
+---Opens the AI CLI terminal. Creates a new process if none is running.
+---@param cmd_spec string|string[] The command to run
 ---@param env_table table Environment variables for the process
 ---@param effective_config table Window layout configuration
 ---@param focus boolean Whether to focus the terminal immediately
-function M.open(cmd_string, env_table, effective_config, focus)
+function M.open(cmd_spec, env_table, effective_config, focus)
   focus = utils.normalize_focus(focus)
 
   -- If terminal already exists, just ensure it's visible
@@ -395,7 +395,8 @@ function M.open(cmd_string, env_table, effective_config, focus)
   vim.api.nvim_win_set_buf(new_winid, new_bufnr)
   apply_terminal_window_style(new_winid)
 
-  local term_cmd_arg = vim.split(cmd_string, " ", { plain = true, trimempty = true })
+  local term_cmd_arg = type(cmd_spec) == "table" and vim.deepcopy(cmd_spec)
+    or vim.split(cmd_spec, " ", { plain = true, trimempty = true })
 
   local term_opts = {
     on_stdout = function()
@@ -438,7 +439,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
   jobid = vim.fn.termopen(term_cmd_arg, term_opts)
 
   if not jobid or jobid <= 0 then
-    vim.notify("Failed to open Gemini terminal.", vim.log.levels.ERROR)
+    vim.notify("Failed to open AI CLI terminal.", vim.log.levels.ERROR)
     vim.api.nvim_win_close(new_winid, true)
     if vim.api.nvim_win_is_valid(original_win) then
       vim.api.nvim_set_current_win(original_win)
@@ -453,7 +454,7 @@ function M.open(cmd_string, env_table, effective_config, focus)
   apply_terminal_palette(bufnr)
   close_extra_terminal_windows()
 
-  terminal_group = vim.api.nvim_create_augroup("GeminiTerminalWindow", { clear = true })
+  terminal_group = vim.api.nvim_create_augroup("AiCliTerminalWindow", { clear = true })
   vim.api.nvim_create_autocmd({ "BufEnter", "TabEnter", "WinEnter" }, {
     group = terminal_group,
     callback = function()
@@ -494,11 +495,11 @@ function M.resize(delta)
   return M.set_width_percentage((config.split_width_percentage or 0.4) + (delta or 0))
 end
 
----Toggles the visibility of the Gemini terminal.
----@param cmd_string string Command to run
+---Toggles the visibility of the AI CLI terminal.
+---@param cmd_spec string|string[] Command to run
 ---@param env_table table Environment variables
 ---@param effective_config table Layout configuration
-function M.toggle(cmd_string, env_table, effective_config)
+function M.toggle(cmd_spec, env_table, effective_config)
   local has_buffer = bufnr and vim.api.nvim_buf_is_valid(bufnr)
   local is_visible = has_buffer and is_terminal_visible()
 
@@ -517,7 +518,7 @@ function M.toggle(cmd_string, env_table, effective_config)
       show_hidden_terminal(effective_config, true)
     else
       -- Start a new terminal process
-      M.open(cmd_string, env_table, effective_config, true)
+      M.open(cmd_spec, env_table, effective_config, true)
     end
   end
 end
