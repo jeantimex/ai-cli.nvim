@@ -5,6 +5,9 @@
 local M = {}
 local logger = require("ai-cli.logger")
 
+-- Compat shim: vim.diff was renamed to vim.text.diff in Neovim 0.12
+local vim_diff = (vim.text and vim.text.diff) or vim.diff
+
 -- Tracks diffs that are currently being reviewed in a window.
 -- Keyed by normalized absolute file path.
 local active_diffs = {}
@@ -117,7 +120,7 @@ end
 ---Generates a unified diff between two strings using Neovim's internal diff engine.
 ---@return string[] lines A table of lines representing the unified diff
 local function build_unified_diff(original_content, new_content)
-  local diff = vim.diff(ensure_trailing_newline(original_content), ensure_trailing_newline(new_content), {
+  local diff = vim_diff(ensure_trailing_newline(original_content), ensure_trailing_newline(new_content), {
     result_type = "unified",
     ctxlen = 3,
     algorithm = "myers",

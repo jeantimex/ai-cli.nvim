@@ -13,7 +13,7 @@ local bufnr = nil
 local winid = nil
 -- Window ID of the most recent normal editing window
 local editor_winid = nil
--- Job ID of the terminal process (returned by termopen)
+-- Job ID of the terminal process (returned by jobstart)
 local jobid = nil
 
 ---@type table|nil Active terminal configuration
@@ -399,6 +399,7 @@ function M.open(cmd_spec, env_table, effective_config, focus)
     or vim.split(cmd_spec, " ", { plain = true, trimempty = true })
 
   local term_opts = {
+    term = true,
     on_stdout = function()
       -- Notify about terminal activity on standard output
       vim.schedule(notify_activity)
@@ -435,8 +436,8 @@ function M.open(cmd_spec, env_table, effective_config, focus)
     term_opts.env = env_table
   end
 
-  -- Start the terminal process
-  jobid = vim.fn.termopen(term_cmd_arg, term_opts)
+  -- Start the terminal process using jobstart with term=true (replaces deprecated termopen)
+  jobid = vim.fn.jobstart(term_cmd_arg, term_opts)
 
   if not jobid or jobid <= 0 then
     vim.notify("Failed to open AI CLI terminal.", vim.log.levels.ERROR)
