@@ -226,7 +226,7 @@ local function choose_review_window()
     end
   end
 
-  return best_win or vim.api.nvim_get_current_win()
+  return best_win
 end
 
 ---Creates a scratch buffer to hold the diff text.
@@ -579,6 +579,10 @@ function M.open_diff(params)
 
   local target_buf = find_loaded_buffer(old_file)
   local target_win = target_buf and find_window_for_buffer(target_buf) or nil
+  if not target_win then
+    -- File isn't visible; fall back to the best available editor window
+    target_win = choose_review_window()
+  end
   if not target_win then
     pending_diffs[old_file] = state
     logger.info("diff", "Queued diff for " .. vim.fn.fnamemodify(old_file, ":."))
