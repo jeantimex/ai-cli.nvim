@@ -32,7 +32,7 @@ function M.create(port, auth_token)
   vim.fn.mkdir(M.lock_dir, "p")
 
   local lock_path = get_lock_path(pid, port)
-  local workspace_path = vim.uv.cwd() or vim.fn.getcwd()
+  local workspace_path = vim.loop.cwd() or vim.fn.getcwd()
 
   -- The structure follows a standard expected by gemini-cli
   local lock_content = {
