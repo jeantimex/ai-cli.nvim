@@ -471,7 +471,7 @@ function M.start()
 
     client:read_start(function(read_err, data)
       if read_err then
-        logger.error("server", "Read error:", read_err)
+        logger.debug("server", "Read error:", read_err)
         remove_sse_client(client)
         close_client(client)
         return
