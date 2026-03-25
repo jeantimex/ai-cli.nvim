@@ -203,6 +203,7 @@ end
 
 ---Heuristic to find the best window for displaying a diff review.
 ---Prefers the largest window that isn't a sidebar or special buffer.
+---If no suitable window exists (e.g., only terminal/sidebar windows), creates a new split.
 local function choose_review_window()
   local current_tab = vim.api.nvim_get_current_tabpage()
   local wins = vim.api.nvim_tabpage_list_wins(current_tab)
@@ -226,7 +227,16 @@ local function choose_review_window()
     end
   end
 
-  return best_win
+  if best_win then
+    return best_win
+  end
+
+  -- No normal editor window found (e.g., only terminal/sidebar windows are visible).
+  -- Create a vertical split so the diff review has somewhere to render.
+  local split_side = ((M.config or {}).terminal or {}).split_side
+  local placement = split_side == "left" and "botright " or "topleft "
+  vim.cmd(placement .. "vsplit")
+  return vim.api.nvim_get_current_win()
 end
 
 ---Creates a scratch buffer to hold the diff text.
@@ -536,7 +546,7 @@ local function schedule_pending_open(path)
       return
     end
 
-    local target_win = find_window_for_path(path)
+    local target_win = find_window_for_path(path) or choose_review_window()
     if target_win then
       open_review(latest_pending, target_win)
     end
